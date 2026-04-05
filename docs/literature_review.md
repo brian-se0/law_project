@@ -16,8 +16,8 @@ This project is a single-case law-and-economics paper on abnormal pre-disclosure
 
 ## Related-securities and peer-security information migration
 
-- Deuskar, Khatri, and Sunder (2024 working paper, accepted at *Management Science*), "Insider Trading Restrictions and Informed Trading in Peer Stocks." This is the closest doctrinally to the shadow-trading problem. The paper's contribution is the idea that information can be fungible across peer securities when direct trading constraints tighten.
-- Du and Hilliard (2025), "Informed Option Trading of Target Firms' Rivals Prior to M&A Announcements," *Journal of Futures Markets* 45(10). This provides a direct options-market analogue for related-firm activity around M&A announcements.
+- Deuskar, Khatri, and Sunder (2025), "Insider Trading Restrictions and Informed Trading in Peer Stocks," *Management Science* 71(3):2390-2412. This is the closest doctrinally to the shadow-trading problem. The paper's contribution is the idea that information can be fungible across peer securities when direct trading constraints tighten.
+- Du and Hilliard (2025), "Informed Option Trading of Target Firms' Rivals Prior to M&A Announcements," *Journal of Futures Markets* 45(10):1683-1692. This provides a direct options-market analogue for related-firm activity around M&A announcements.
 - For this project, those papers justify treating INCY as the primary related security and describing the result as a suspicious footprint or shadow-trading risk signal, not as proof of liability.
 
 ## Ex ante linkage measurement
@@ -26,6 +26,16 @@ This project is a single-case law-and-economics paper on abnormal pre-disclosure
 - Hoberg and Phillips (2016), "Text-Based Network Industries and Endogenous Product Differentiation," *Journal of Political Economy* 124(5):1423-1465. This is the direct TNIC measurement anchor and should be the main citation when we explain the horizontal linkage table.
 - Fresard, Hoberg, Phillips, and Cornelli (2020), "Innovation Activities and Integration through Vertical Acquisitions," *Review of Financial Studies* 33(7):2937-2976. This is the main vertical-relatedness anchor and supports keeping VTNIC as unsigned context in the watchlist rather than forcing a directional claim we cannot defend in this repo.
 
+## Primary legal sources
+
+- The paper's timeline and exact-contract framing should rest on the official SEC complaint in *Securities and Exchange Commission v. Matthew Panuwat* (filed August 17, 2021). This is the primary source for the August 18 private-information context, the August 22 announcement framing, and the complaint-named INCY options inventory.
+- The case outcome should rest on the SEC's April 8, 2024 litigation release reporting the jury verdict and the final judgment entered on October 24, 2024. Those are the right primary sources for any statement about liability, injunctions, or penalty.
+
+## Data source and measurement constraints
+
+- The vendor schema citation should be the Cboe DataShop *Option EOD Summary* layout. That document is the authoritative source for the two daily snapshots, the Calcs-only IV and Greek fields, the start-of-day OCC open-interest definition, and the unchanged `1545` label on early-close days.
+- Because the canonical MDVN case-study path uses IV and delta at the 15:45 snapshot, the repo should continue to document that the final case-study pipeline requires the Calcs version of the vendor file for the legally focal path.
+
 ## What the paper should claim
 
 - Exact-series evidence is the headline empirical layer because the SEC complaint identifies those contracts specifically.
@@ -33,8 +43,7 @@ This project is a single-case law-and-economics paper on abnormal pre-disclosure
 - Ex ante linkages are watchlist tools and materiality proxies. They are not proof that a related security was material to the deal, and they are not proof of unlawful trading.
 - The paper should separate empirical claims from normative claims. The empirical claim is that the repo can document abnormal pre-disclosure activity in complaint-named INCY contracts within an ex ante linkage setting. The normative claim, if any, is limited to compliance design: related-securities watchlists should cover economically linked single-name shares and listed options before public disclosure.
 
-## Open citation notes
+## Citation notes
 
-- The Deuskar-Khatri-Sunder paper is still best treated as a working-paper citation in the draft, even though SSRN reports it as accepted at *Management Science*.
-- The Du-Hilliard paper is recent enough that we should keep the journal citation but avoid overloading the draft with strong doctrinal claims based on a single new article.
-- `references.bib` contains the working citation set for the current draft.
+- `references.bib` should contain the published journal entries for the academic papers and the primary-source SEC/court and vendor-schema entries for the case-study draft.
+- The draft should rely on primary legal sources for timeline and outcome statements, and on the vendor schema for any statement about field availability or measurement limits in the daily options data.

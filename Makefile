@@ -1,4 +1,4 @@
-.PHONY: init ingest-options build-underlyings build-events build-linkages freeze-case build-buckets main-study paper test
+.PHONY: init ingest-options build-underlyings build-events build-linkages freeze-case build-buckets main-study paper package release test
 
 PYTHON ?= python
 
@@ -28,6 +28,11 @@ main-study:
 
 paper:
 	$(PYTHON) scripts/make_mdvn_outputs.py --project-root .
+
+package:
+	$(PYTHON) scripts/package_mdvn_assessment.py --project-root .
+
+release: freeze-case build-buckets main-study paper package
 
 test:
 	$(PYTHON) -m pytest -q

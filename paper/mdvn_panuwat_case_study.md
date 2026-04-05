@@ -2,23 +2,23 @@
 
 ## Question
 
-This paper studies whether a reproducible law-and-economics workflow can document abnormal pre-disclosure options activity in a related security around a target-firm M&A announcement. The focal case is Medivation (`MDVN`) and Incyte (`INCY`) around Pfizer's August 22, 2016 announcement that it would acquire Medivation. The legal motivation is *SEC v. Panuwat*. The empirical objective is narrower than proving liability: it is to measure suspicious pre-disclosure footprints in the complaint-named `INCY` contracts and translate the evidence into a related-securities watchlist rule.
+This paper studies whether a reproducible law-and-economics workflow can document abnormal pre-disclosure options activity in a related security around a target-firm M&A announcement. The focal case is Medivation (`MDVN`) and Incyte (`INCY`) around Pfizer's August 22, 2016 announcement that it would acquire Medivation [@sec2021panuwatcomplaint]. The legal motivation is *SEC v. Panuwat*, where a jury found Matthew Panuwat liable in April 2024 and the court entered final judgment in October 2024 [@sec2024panuwatverdict; @sec2024panuwatfinaljudgment]. The empirical objective is narrower than proving liability: it is to measure suspicious pre-disclosure footprints in the complaint-named `INCY` contracts and translate the evidence into a related-securities watchlist rule [@sec2021panuwatcomplaint; @deuskar2025peerstocks; @du2025rivals].
 
 ## Design
 
-The event table freezes the canonical MDVN announcement using the first public disclosure timestamp and then maps that timestamp into trading time under the repo's event-alignment rules. The options sample is limited to single-name equity options in the case-study window, with the primary legally focal series fixed ex ante in config:
+The event table freezes the canonical MDVN announcement using the first public disclosure timestamp and then maps that timestamp into trading time under the repo's event-alignment rules [@sec2021panuwatcomplaint]. The options sample is limited to single-name equity options in the case-study window using the Cboe Option EOD Summary layout with Calcs included, because the canonical path relies on the 15:45 implied-volatility and delta fields and treats `open_interest` as start-of-day OCC open interest [@cboe_option_eod_summary]. The primary legally focal series are fixed ex ante in config and mirror the complaint's contract framing [@sec2021panuwatcomplaint]:
 
 - `INCY 2016-09-16 C 80.0`
 - `INCY 2016-09-16 C 82.5`
 - `INCY 2016-09-16 C 85.0`
 
-The linkage context is also fixed ex ante. Horizontal peers come from lagged TNIC and vertical context comes from lagged VTNIC. The watchlist logic therefore does not cherry-pick peers ex post to fit the facts of the case. It asks a simpler compliance question: if a firm froze trading in MDVN before public disclosure, which economically linked single-name shares and listed options should have been on the same restricted list?
+The linkage context is also fixed ex ante. Horizontal peers come from lagged TNIC and vertical context comes from lagged VTNIC [@hoberg2010product; @hoberg2016text; @fresard2020innovation]. The watchlist logic therefore does not cherry-pick peers ex post to fit the facts of the case. It asks a simpler compliance question: if a firm froze trading in MDVN before public disclosure, which economically linked single-name shares and listed options should have been on the same restricted list?
 
 ## Empirical framing
 
-The draft now treats the complaint-named exact `INCY` contracts as the headline evidence layer. This choice is important. In a single-case paper, pooled exact-series evidence is more legally relevant than a generic bucket average because the SEC complaint identifies specific contracts. The scripted table at `outputs/tables/mdvn_exact_contract_window_summary.md` is therefore the first empirical table to cite in the text.
+The draft now treats the complaint-named exact `INCY` contracts as the headline evidence layer. This choice is important. In a single-case paper, pooled exact-series evidence is more legally relevant than a generic bucket average because the SEC complaint identifies specific contracts [@sec2021panuwatcomplaint]. The scripted table at `outputs/tables/mdvn_exact_contract_window_summary.md` is therefore the first empirical table to cite in the text.
 
-The short-dated OTM call bucket remains in the paper, but only as a benchmark and sensitivity check. That benchmark is motivated by takeover-options evidence in Augustin, Brenner, and Subrahmanyam (2019). It is useful because it links this case to the broader literature, but it should not displace the exact-series layer when the two point in different directions.
+The short-dated OTM call bucket remains in the paper, but only as a benchmark and sensitivity check. That benchmark is motivated by takeover-options evidence in Augustin, Brenner, and Subrahmanyam (2019) [@augustin2019informed]. It is useful because it links this case to the broader literature on informed options activity and related-securities information migration [@cao2024informativeness; @deuskar2025peerstocks; @du2025rivals], but it should not displace the exact-series layer when the two point in different directions.
 
 ## Live case result
 
@@ -36,9 +36,9 @@ The exact-series signal remains strong in the terminal `[-2,-1]` window, where p
 
 ## Bucket benchmark and linkage context
 
-The broader bucket benchmark remains mixed. In the `INCY` short-dated OTM call bucket, the pre-event `[-5,-1]` mean abnormal volume is `-0.3173`, while the terminal `[-2,-1]` mean abnormal volume turns positive at `0.5638`. That divergence is precisely why the paper should lead with exact-series evidence and treat the bucket layer as a benchmark and sensitivity check rather than the central result.
+The broader bucket benchmark remains mixed. In the `INCY` short-dated OTM call bucket, the pre-event `[-5,-1]` mean abnormal volume is `-0.3173`, while the terminal `[-2,-1]` mean abnormal volume turns positive at `0.5638`. That divergence is precisely why the paper should lead with exact-series evidence and treat the bucket layer as a benchmark and sensitivity check rather than the central result [@augustin2019informed].
 
-The ex ante linkage context also now reads coherently. In the retained MDVN case-study watchlist, `INCY` is force-retained as the legally focal related security, with lagged horizontal TNIC rank `32` and percentile `0.7615` within the full relevant horizontal link set. The retained watchlist then adds `10` other lagged TNIC peers plus `81` lagged VTNIC relations as unsigned context. This is the right doctrinal framing: linkage is an ex ante watchlist tool, not proof that every retained firm was materially affected by the deal.
+The ex ante linkage context also now reads coherently. In the retained MDVN case-study watchlist, `INCY` is force-retained as the legally focal related security, with lagged horizontal TNIC rank `32` and percentile `0.7615` within the full relevant horizontal link set. The retained watchlist then adds `10` other lagged TNIC peers plus `81` lagged VTNIC relations as unsigned context. This is the right doctrinal framing: linkage is an ex ante watchlist tool, not proof that every retained firm was materially affected by the deal [@hoberg2016text; @fresard2020innovation].
 
 ## Main statement
 
@@ -62,12 +62,12 @@ The policy contribution is a watchlist rule, not a liability rule. A compliance 
 - add lagged vertical relations as unsigned context
 - use matched non-linked controls only for calibration, not for surveillance scope
 
-The repo's watchlist figure and memo should therefore be read as a compliance design output. They do not imply that every linked name is materially affected by the deal, and they do not imply that abnormal activity proves insider trading.
+The repo's watchlist figure and memo should therefore be read as a compliance design output [@deuskar2025peerstocks; @du2025rivals; @hoberg2016text; @fresard2020innovation]. They do not imply that every linked name is materially affected by the deal, and they do not imply that abnormal activity proves insider trading.
 
 ## Limits
 
-This is a single-case reconstruction using daily options data. It does not identify traders, recover intraday order flow, or establish causation. Open interest is start-of-day OCC open interest, so any opening-demand proxy is necessarily approximate. Linkages are ex ante materiality proxies for watchlist design, not proof of doctrinal materiality by themselves.
+This is a single-case reconstruction using daily options data from the Cboe Option EOD Summary layout [@cboe_option_eod_summary]. It does not identify traders, recover intraday order flow, or establish causation. Open interest is start-of-day OCC open interest, and the canonical case-study path depends on Calcs-backed IV and delta fields, so any opening-demand proxy remains approximate and any non-Calcs case run should fail rather than silently switch specifications [@cboe_option_eod_summary]. Linkages are ex ante materiality proxies for watchlist design, not proof of doctrinal materiality by themselves [@hoberg2016text; @fresard2020innovation].
 
-## Working references
+## Sources
 
-The current bibliography lives in `references.bib`. The literature review in `docs/literature_review.md` explains why the paper relies on takeover-options evidence, peer-security information migration, TNIC/VTNIC relatedness, and options-price informativeness.
+The current bibliography lives in `references.bib`. The literature review in `docs/literature_review.md` explains why the paper relies on takeover-options evidence, peer-security information migration, TNIC/VTNIC relatedness, and options-price informativeness [@augustin2019informed; @deuskar2025peerstocks; @du2025rivals; @hoberg2016text; @fresard2020innovation; @cao2024informativeness].

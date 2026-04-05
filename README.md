@@ -54,6 +54,8 @@ make freeze-case
 make build-buckets
 make main-study
 make paper
+make package
+make release
 ```
 
 ## Guardrails
@@ -66,3 +68,9 @@ make paper
 - Zero or crossed quotes are excluded from spread calculations rather than treated as clean prices.
 - The repo is not a trading-strategy or accusation engine.
 - Abnormal activity is not described as proof of illegality or liability.
+
+## Release Discipline
+
+- Generate any final assessment bundle from the current commit with `python scripts/package_mdvn_assessment.py --project-root .` or `make package`.
+- Put legal and timeline claims behind primary SEC or court sources.
+- Put data-layout and field-availability claims behind the Cboe Option EOD Summary vendor schema.

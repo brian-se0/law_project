@@ -138,6 +138,36 @@ def seed_case_study_inputs(tmp_path: Path, *, include_frozen_event: bool = True)
     return config
 
 
+def seed_release_bundle_support_files(project_root: Path) -> None:
+    (project_root / "docs").mkdir(parents=True, exist_ok=True)
+    (project_root / "paper").mkdir(parents=True, exist_ok=True)
+
+    (project_root / "README.md").write_text("# Test release bundle\n", encoding="utf-8")
+    (project_root / "AGENTS.md").write_text("# Test agents\n", encoding="utf-8")
+    (project_root / "Makefile").write_text("test:\n\tpython -m pytest -q\n", encoding="utf-8")
+    (project_root / "references.bib").write_text(
+        "@misc{sec2021panuwatcomplaint,\n  title = {Test complaint}\n}\n",
+        encoding="utf-8",
+    )
+    (project_root / "docs" / "literature_review.md").write_text(
+        "# Test literature review\n",
+        encoding="utf-8",
+    )
+    (project_root / "docs" / "results_log.md").write_text("# Test results log\n", encoding="utf-8")
+    (project_root / "docs" / "assumptions_log.md").write_text(
+        "# Test assumptions log\n",
+        encoding="utf-8",
+    )
+    (project_root / "docs" / "data_dictionary.md").write_text(
+        "# Test data dictionary\n",
+        encoding="utf-8",
+    )
+    (project_root / "paper" / "mdvn_panuwat_case_study.md").write_text(
+        "# Test MDVN paper draft\n",
+        encoding="utf-8",
+    )
+
+
 def _write_underlyings(path: Path) -> None:
     rows = []
     for symbol, base_price in {

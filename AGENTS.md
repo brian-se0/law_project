@@ -103,6 +103,11 @@ Always work in this order unless the user instructs otherwise:
 - Keep a short provenance note for each derived table.
 - Save paper figures and tables via scripts, not manual notebook exports.
 
+## Release rules
+- Generate any final assessment bundle from the current commit.
+- Legal and timeline claims must cite primary SEC or court sources.
+- Data-layout and field-availability claims must cite the Cboe Option EOD Summary vendor schema.
+
 ## Validation checklist for any non-trivial change
 Before marking work complete:
 1. run lint / format checks if configured
