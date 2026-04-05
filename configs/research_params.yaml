@@ -1,0 +1,57 @@
+ingest_options:
+  file_glob: "UnderlyingOptionsEODCalcs_*.zip"
+  output_dataset_dir: options_eod_summary
+  qc_report_stem: options_ingest_qc
+
+build_underlyings:
+  input_dataset_dir: options_eod_summary
+  output_file_name: underlying_daily.parquet
+  qc_report_stem: underlying_daily_qc
+
+build_events:
+  input_underlyings_file_name: underlying_daily.parquet
+  cache_dir: sec
+  candidates_file_name: sec_mna_candidates.parquet
+  events_file_name: sec_mna_event_universe.parquet
+  qc_report_stem: sec_mna_event_universe_qc
+  user_agent: law_project_research research@example.com
+  request_spacing_seconds: 0.2
+  candidate_forms:
+    - 8-K
+    - 8-K/A
+    - DEFA14A
+    - DEFM14A
+    - PREM14A
+    - DEFA14C
+    - DEFM14C
+    - PREM14C
+    - 425
+    - S-4
+    - S-4/A
+    - F-4
+    - F-4/A
+    - SC TO-T
+    - SC TO-T/A
+    - SC TO-C
+    - 14D9
+    - 14D9/A
+
+build_linkages:
+  input_underlyings_file_name: underlying_daily.parquet
+  input_events_file_name: sec_mna_event_universe.parquet
+  raw_linkages_dir: linkages
+  bridge_seed_file_name: gvkey_ciks_seed.csv
+  bridge_output_file_name: gvkey_underlying_bridge.parquet
+  output_file_name: linkages.parquet
+  controls_file_name: linkage_control_candidates.parquet
+  qc_report_stem: linkages_qc
+
+market:
+  timezone: America/New_York
+  regular_open: "09:30"
+  regular_close: "16:00"
+
+windows:
+  estimation: [-120, -20]
+  pre_event: [-5, -1]
+  announcement: [0, 1]

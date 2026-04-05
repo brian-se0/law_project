@@ -1,0 +1,27 @@
+# Assumptions Log
+
+## 2026-04-04
+
+- The first implementation slice targets Milestone 0 and Milestone 1 only: repo scaffold plus options schema/QC ingestion.
+- The immutable raw option archives are read from `D:\Options Data` and are never modified in place.
+- The ingestion layer is aligned to the vendor's `Option_EOD_Summary_Layout.pdf` v1.1 field list and reads zipped daily CSV files directly.
+- `series_id` is fixed as `underlying_symbol|root|expiration|strike|option_type`, with strike rounded to four decimals before string conversion for deterministic IDs.
+- `open_interest` is treated as start-of-day only and is ingested without any opening-demand interpretation at this stage.
+- Zero or crossed quotes are flagged and excluded from midpoint/spread calculations rather than silently dropped during raw ingestion.
+- The `1545` snapshot is preserved as the vendor labels it; on early-close days the vendor note says this still represents the early-close snapshot.
+- The underlying-daily table collapses repeated option-series rows to one `underlying_symbol x quote_date` observation using deterministic first-non-null representatives plus explicit distinct-count and inconsistency flags.
+- Underlying quote-consistency checks are based on the actual disseminated underlying bid/ask snapshots. `active_underlying_price_1545` is preserved in the table but not treated as a repeated quote field for inconsistency QC because it is a calculation-model input rather than a direct underlying quote snapshot.
+- `raw_return` in the underlying-daily table is a simple close-to-close percentage change based on `s_eod`; missing or invalid end-of-day underlying quotes are left null rather than filled from the 15:45 snapshot.
+- The SEC event builder currently uses official company ticker mappings plus issuer submissions JSON and raw filing text, limited to a transparent set of M&A-related forms in `configs/research_params.yaml`.
+- Source-firm resolution prefers `SUBJECT COMPANY` for tender-offer forms and otherwise falls back to the filing entity. Candidates are filtered back to firms that appear in the options-eligible symbol universe.
+- M&A identification is rule-based rather than model-based at this stage. The code uses explicit keyword and exclusion patterns, writes an auditable candidate table, and sets `requires_manual_review` for ambiguous cases instead of forcing a definitive event label.
+- Deal deduplication is currently based on source firm, extracted counterparty when available, and rolling time-gap clustering. This is intended as an interpretable baseline and may need refinement once a larger real sample is reviewed.
+- The SEC event builder now preserves explicit `target_*` and `acquirer_*` fields and assigns a canonical `source_firm_id` so downstream linkage joins can key off the options symbol rather than only the raw filing entity.
+- When a filing clearly identifies a target/acquirer pair, acquirer-side filings such as `425` materials can supply the first public disclosure timestamp for the target event universe, but those cases remain flagged for manual review when the historical issuer mapping is imperfect.
+- Historical option symbols that are missing from the current SEC ticker file now fall back to an SEC-native bridge built from full-text filing search plus EDGAR company-search pages. The bridge first tries targeted symbol queries such as `"symbol VAR"` and `"NYSE: VAR"`, then aggregates filing-header, body-text, and display-name evidence before selecting a historical issuer match.
+- The historical SEC bridge is intentionally conservative: it strips amended-form suffixes when querying the full-text index, prefers repeated strong hits over one-off runner-ups, and only accepts company-search fallbacks when the company name match is exact or near-exact. This improves auditability but can still leave noisy or sparse symbols unresolved.
+- Historical bridge matches are sufficient to recover older/delisted targets such as `XLNX`, `VAR`, and `FLIR` in the current validation slice, but downstream event clustering and counterparty extraction remain manual-review heavy. Those outputs should still be treated as candidate events rather than final clean-study observations.
+- The linkage builder now ignores linkage readme files during discovery, accepts both direct ticker-pair and gvkey-pair TNIC/VTNIC raw files, and recognizes vertical `vertscore` fields as the linkage score input.
+- The current no-pay gvkey bridge uses the open `farr::gvkey_ciks` seed, current SEC company tickers, and event-derived historical SEC issuer evidence, then retains only unique dated `gvkey <-> underlying_symbol <-> event_year` matches that also appear in the options universe. This is intentionally conservative and may leave some ticker-reuse cases unresolved rather than forcing a match.
+- The linkage build still lags linkages by one calendar year, symmetrizes the pair table for watchlist construction, and defines control candidates by excluding retained linked firms from the event-year option universe. For vertical raw files, this means the current baseline is an unsigned watchlist relation rather than a direction-preserving supplier/customer estimate.
+- Trading-date alignment currently uses a built-in regular NYSE holiday approximation sufficient for event-date mapping tests; if later stages require special-close handling or exchange-specific edge cases, the calendar layer should be upgraded rather than patched ad hoc.

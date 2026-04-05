@@ -1,0 +1,7 @@
+paths:
+  raw_dir: D:/Options Data
+  external_dir: data/external
+  interim_dir: data/interim
+  processed_dir: data/processed
+  outputs_dir: outputs
+  qc_dir: outputs/qc
