@@ -18,6 +18,7 @@ from shadow_trading.buckets import (
     build_exact_contract_features,
     enrich_case_option_rows,
     extract_case_option_slice,
+    extract_symbol_daily_option_volume,
     render_bucket_qc_markdown,
     summarize_bucket_build,
 )
@@ -36,6 +37,7 @@ class CaseStudyPaths:
     related_firms_file: Path
     exact_contracts_file: Path
     bucket_features_file: Path
+    matched_control_bucket_features_file: Path
     abnormal_metrics_file: Path
     control_matches_file: Path
     case_event_qc_json_file: Path
@@ -71,10 +73,12 @@ class CaseStudyArtifacts:
     related_firms_file: Path
     exact_contracts_file: Path
     bucket_features_file: Path
+    matched_control_bucket_features_file: Path
     abnormal_metrics_file: Path
     control_matches_file: Path
     qc_json_file: Path
     qc_markdown_file: Path
+    matched_control_bucket_row_count: int
     abnormal_metric_row_count: int
     control_match_row_count: int
 
@@ -88,6 +92,9 @@ def build_case_study_paths(config: ProjectConfig) -> CaseStudyPaths:
         related_firms_file=case_dir / f"{case_stem}_related_firms.parquet",
         exact_contracts_file=case_dir / f"{case_stem}_exact_contracts.parquet",
         bucket_features_file=case_dir / f"{case_stem}_bucket_features.parquet",
+        matched_control_bucket_features_file=(
+            case_dir / f"{case_stem}_matched_control_bucket_features.parquet"
+        ),
         abnormal_metrics_file=case_dir / f"{case_stem}_abnormal_metrics.parquet",
         control_matches_file=case_dir / f"{case_stem}_control_matches.parquet",
         case_event_qc_json_file=config.paths.qc_dir / f"{case_stem}_case_event_qc.json",
@@ -365,7 +372,11 @@ def run_case_study(
 ) -> CaseStudyArtifacts:
     ensure_directories(config.paths)
     paths = build_case_study_paths(config)
-    outputs = [paths.abnormal_metrics_file, paths.control_matches_file]
+    outputs = [
+        paths.abnormal_metrics_file,
+        paths.control_matches_file,
+        paths.matched_control_bucket_features_file,
+    ]
     if any(path.exists() for path in outputs) and not overwrite:
         raise FileExistsError(
             "One or more case-study outputs already exist. Re-run with overwrite enabled."
@@ -398,16 +409,30 @@ def run_case_study(
         config=config,
         controls_candidates=controls_candidates,
         underlyings=underlyings,
-        bucket_features=bucket_features,
+        options_dataset_dir=config.paths.processed_dir / config.ingest_options.output_dataset_dir,
         window_dates=window_dates,
     )
     control_matches.write_parquet(paths.control_matches_file, compression="zstd")
+
+    matched_control_bucket_features = build_matched_control_bucket_features(
+        config=config,
+        control_matches=control_matches,
+        window_dates=window_dates,
+        bucket_feature_template=bucket_features,
+    )
+    matched_control_bucket_features.write_parquet(
+        paths.matched_control_bucket_features_file,
+        compression="zstd",
+    )
 
     abnormal_metrics = build_case_abnormal_summary(
         config=config,
         related_firms=related_firms,
         control_matches=control_matches,
-        bucket_features=bucket_features,
+        bucket_features=pl.concat(
+            [bucket_features, matched_control_bucket_features],
+            how="vertical_relaxed",
+        ),
         underlyings=underlyings,
         window_dates=window_dates,
     )
@@ -426,6 +451,7 @@ def run_case_study(
         "related_firm_row_count": related_firms.height,
         "exact_contract_row_count": exact_contracts.height,
         "bucket_row_count": bucket_features.height,
+        "matched_control_bucket_row_count": matched_control_bucket_features.height,
         "abnormal_metric_row_count": abnormal_metrics.height,
         "control_match_row_count": control_matches.height,
         "primary_related_symbol": config.case_study.primary_related_symbol,
@@ -438,6 +464,7 @@ def run_case_study(
         "related_firms_output": str(paths.related_firms_file),
         "exact_contracts_output": str(paths.exact_contracts_file),
         "bucket_features_output": str(paths.bucket_features_file),
+        "matched_control_bucket_features_output": str(paths.matched_control_bucket_features_file),
         "abnormal_metrics_output": str(paths.abnormal_metrics_file),
         "control_matches_output": str(paths.control_matches_file),
         "provenance_note": (
@@ -452,10 +479,12 @@ def run_case_study(
         related_firms_file=paths.related_firms_file,
         exact_contracts_file=paths.exact_contracts_file,
         bucket_features_file=paths.bucket_features_file,
+        matched_control_bucket_features_file=paths.matched_control_bucket_features_file,
         abnormal_metrics_file=paths.abnormal_metrics_file,
         control_matches_file=paths.control_matches_file,
         qc_json_file=paths.case_qc_json_file,
         qc_markdown_file=paths.case_qc_markdown_file,
+        matched_control_bucket_row_count=matched_control_bucket_features.height,
         abnormal_metric_row_count=abnormal_metrics.height,
         control_match_row_count=control_matches.height,
     )
@@ -546,7 +575,7 @@ def select_primary_related_controls(
     config: ProjectConfig,
     controls_candidates: pl.DataFrame,
     underlyings: pl.DataFrame,
-    bucket_features: pl.DataFrame,
+    options_dataset_dir: Path,
     window_dates: CaseWindowDates,
 ) -> pl.DataFrame:
     if controls_candidates.height == 0:
@@ -577,12 +606,10 @@ def select_primary_related_controls(
             ]
         )
     )
-    daily_volume = (
-        bucket_features.group_by(["underlying_symbol", "quote_date"])
-        .agg(pl.col("volume_bucket").sum().alias("daily_total_volume"))
-        .filter(pl.col("quote_date").is_in(estimation_dates))
-        .group_by("underlying_symbol")
-        .agg(pl.col("daily_total_volume").mean().alias("estimation_mean_daily_option_volume"))
+    daily_volume = _load_estimation_option_volume_features(
+        options_dataset_dir=options_dataset_dir,
+        symbols=symbols,
+        estimation_dates=tuple(estimation_dates),
     )
     features = return_features.join(daily_volume, on="underlying_symbol", how="left")
     target = features.filter(
@@ -601,6 +628,7 @@ def select_primary_related_controls(
             "estimation_return_std",
             "estimation_abs_return_mean",
             "estimation_observed_days",
+            "estimation_mean_daily_option_volume",
         ]
     )
     if control_features.height == 0:
@@ -650,6 +678,36 @@ def select_primary_related_controls(
             "estimation_observed_days",
             "estimation_mean_daily_option_volume",
         ]
+    )
+
+
+def build_matched_control_bucket_features(
+    *,
+    config: ProjectConfig,
+    control_matches: pl.DataFrame,
+    window_dates: CaseWindowDates,
+    bucket_feature_template: pl.DataFrame,
+) -> pl.DataFrame:
+    control_symbols = sorted(
+        set(control_matches.get_column("control_firm_id").drop_nulls().to_list())
+    )
+    if not control_symbols:
+        return bucket_feature_template.head(0)
+
+    option_rows = extract_case_option_slice(
+        options_dataset_dir=config.paths.processed_dir / config.ingest_options.output_dataset_dir,
+        symbols=control_symbols,
+        quote_dates=window_dates.extraction_dates,
+    )
+    enriched_rows = enrich_case_option_rows(
+        options_frame=option_rows,
+        window_dates=window_dates,
+        exact_contracts=config.case_study.exact_contracts,
+        primary_related_symbol=config.case_study.primary_related_symbol,
+    )
+    return compute_bucket_abnormal_metrics(
+        build_bucket_features(enriched_rows),
+        estimation_window=config.case_study.windows.estimation,
     )
 
 
@@ -748,6 +806,40 @@ def build_case_abnormal_summary(
             "underlying_symbol",
         ],
         descending=[False, True, False, False, False],
+    )
+
+
+def _load_estimation_option_volume_features(
+    *,
+    options_dataset_dir: Path,
+    symbols: list[str],
+    estimation_dates: tuple[date, ...],
+) -> pl.DataFrame:
+    if not symbols:
+        return pl.DataFrame(
+            schema={
+                "underlying_symbol": pl.String,
+                "estimation_mean_daily_option_volume": pl.Float64,
+            }
+        )
+
+    daily_volume = extract_symbol_daily_option_volume(
+        options_dataset_dir=options_dataset_dir,
+        symbols=symbols,
+        quote_dates=estimation_dates,
+    )
+    if daily_volume.height == 0:
+        return pl.DataFrame(
+            schema={
+                "underlying_symbol": pl.String,
+                "estimation_mean_daily_option_volume": pl.Float64,
+            }
+        )
+    return daily_volume.group_by("underlying_symbol").agg(
+        pl.col("daily_total_volume")
+        .cast(pl.Float64)
+        .mean()
+        .alias("estimation_mean_daily_option_volume")
     )
 
 
@@ -882,6 +974,7 @@ def render_case_qc_markdown(report: dict[str, Any]) -> str:
         f"- Related-firm rows: {report['related_firm_row_count']:,}",
         f"- Exact-contract rows: {report['exact_contract_row_count']:,}",
         f"- Bucket rows: {report['bucket_row_count']:,}",
+        f"- Matched-control bucket rows: {report['matched_control_bucket_row_count']:,}",
         f"- Abnormal-summary rows: {report['abnormal_metric_row_count']:,}",
         f"- Control matches: {report['control_match_row_count']:,}",
         f"- Primary related symbol: {report['primary_related_symbol']}",

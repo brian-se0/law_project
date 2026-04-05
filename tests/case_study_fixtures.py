@@ -351,6 +351,8 @@ def _option_rows_for_date(quote_date: date) -> list[dict[str, object]]:
     incy_exact, incy_other, peer_volume, ctrl_volume = volumes[quote_date]
     mdvn_volume = 20 if quote_date in {date(2016, 8, 18), date(2016, 8, 19)} else 6
     underlyings = {"INCY": 80.0, "PEER": 52.0, "CTRL": 48.0, "MDVN": 65.0}
+    exact_expiration = date(2016, 9, 16)
+    short_expiration = date(2016, 9, 9)
     rows = [
         _option_row(
             quote_date,
@@ -361,6 +363,7 @@ def _option_rows_for_date(quote_date: date) -> list[dict[str, object]]:
             vwap=2.4,
             delta=0.25,
             underlying_price=underlyings["INCY"],
+            expiration=exact_expiration,
         ),
         _option_row(
             quote_date,
@@ -371,6 +374,7 @@ def _option_rows_for_date(quote_date: date) -> list[dict[str, object]]:
             vwap=1.6,
             delta=0.18,
             underlying_price=underlyings["INCY"],
+            expiration=exact_expiration,
         ),
         _option_row(
             quote_date,
@@ -381,6 +385,7 @@ def _option_rows_for_date(quote_date: date) -> list[dict[str, object]]:
             vwap=1.1,
             delta=0.22,
             underlying_price=underlyings["PEER"],
+            expiration=short_expiration,
         ),
         _option_row(
             quote_date,
@@ -391,6 +396,7 @@ def _option_rows_for_date(quote_date: date) -> list[dict[str, object]]:
             vwap=0.9,
             delta=0.21,
             underlying_price=underlyings["CTRL"],
+            expiration=short_expiration,
         ),
         _option_row(
             quote_date,
@@ -401,6 +407,7 @@ def _option_rows_for_date(quote_date: date) -> list[dict[str, object]]:
             vwap=2.1,
             delta=0.27,
             underlying_price=underlyings["MDVN"],
+            expiration=short_expiration,
         ),
     ]
     return rows
@@ -416,8 +423,8 @@ def _option_row(
     vwap: float,
     delta: float,
     underlying_price: float,
+    expiration: date,
 ) -> dict[str, object]:
-    expiration = date(2016, 9, 16)
     mid = max(vwap, 0.5)
     return {
         "quote_date": quote_date,

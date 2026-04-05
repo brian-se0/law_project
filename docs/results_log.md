@@ -24,3 +24,13 @@ No new empirical MDVN result has been logged yet, but the repo's production path
 - updated the repo build targets and documentation so the public code path matches the MDVN-only paper direction
 
 This is still an infrastructure and reproducibility milestone rather than a substantive empirical finding. A live MDVN result still depends on loading the relevant 2016 option partitions and event coverage into the local processed data slice.
+
+Follow-up pipeline validation on 2026-04-05:
+
+- Ran the live 2016 `MDVN` slice through ingest, underlying build, SEC event build, linkage build, case freeze, bucket build, and case-study summary on the local data.
+- Fixed a historical SEC resolver bug where the bridge could stop on the first plausible symbol hit instead of scoring the full targeted hit set, which was causing the MDVN freeze step to miss the Medivation/Pfizer event.
+- Fixed the case-study extraction transfer path so the live DuckDB slice can be materialized into Polars without a brittle schema-inference failure.
+- Wired matched controls through their own option extraction and bucket construction path so the control benchmark is no longer structurally null in the case-study summary.
+- Added scripted memo outputs for the watchlist/compliance translation and limitations note, alongside escaped markdown tables for the exact-contract inventory.
+
+This is still not a logged substantive empirical result. It is a live-run reproducibility milestone showing that the MDVN-only scripted path now executes on the local 2016 slice and emits the expected processed artifacts.

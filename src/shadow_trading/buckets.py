@@ -130,15 +130,10 @@ def extract_case_option_slice(
             f"{options_dataset_dir} does not exist. Run the options ingest step first."
         )
 
-    partition_paths = [
-        options_dataset_dir / f"quote_date={quote_date.isoformat()}" / "options_eod_summary.parquet"
-        for quote_date in quote_dates
-        if (
-            options_dataset_dir
-            / f"quote_date={quote_date.isoformat()}"
-            / "options_eod_summary.parquet"
-        ).exists()
-    ]
+    partition_paths = _resolve_option_partition_paths(
+        options_dataset_dir=options_dataset_dir,
+        quote_dates=quote_dates,
+    )
     if not partition_paths:
         raise FileNotFoundError(
             "No processed option partitions were found for the configured case-study dates. "
@@ -147,6 +142,39 @@ def extract_case_option_slice(
 
     normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols})
     return _extract_option_slice_duckdb(partition_paths, normalized_symbols)
+
+
+def extract_symbol_daily_option_volume(
+    *,
+    options_dataset_dir: Path,
+    symbols: list[str],
+    quote_dates: tuple[date, ...],
+) -> pl.DataFrame:
+    if not options_dataset_dir.exists():
+        raise FileNotFoundError(
+            f"{options_dataset_dir} does not exist. Run the options ingest step first."
+        )
+
+    partition_paths = _resolve_option_partition_paths(
+        options_dataset_dir=options_dataset_dir,
+        quote_dates=quote_dates,
+    )
+    if not partition_paths:
+        raise FileNotFoundError(
+            "No processed option partitions were found for the configured case-study dates. "
+            "Load the required quote dates before running bucket construction."
+        )
+
+    normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols})
+    if not normalized_symbols:
+        return pl.DataFrame(
+            schema={
+                "quote_date": pl.Date,
+                "underlying_symbol": pl.String,
+                "daily_total_volume": pl.Int64,
+            }
+        )
+    return _extract_symbol_daily_option_volume_duckdb(partition_paths, normalized_symbols)
 
 
 def enrich_case_option_rows(
@@ -473,9 +501,60 @@ def _extract_option_slice_duckdb(
     try:
         relation = connection.sql(query)
         rows = relation.fetchall()
-        return pl.DataFrame(rows, schema=relation.columns, orient="row")
+        return pl.DataFrame(
+            rows,
+            schema=relation.columns,
+            orient="row",
+            infer_schema_length=None,
+        )
     finally:
         connection.close()
+
+
+def _extract_symbol_daily_option_volume_duckdb(
+    partition_paths: list[Path],
+    symbols: list[str],
+) -> pl.DataFrame:
+    path_literals = ", ".join(_sql_string_literal(str(path)) for path in partition_paths)
+    symbol_literals = ", ".join(_sql_string_literal(symbol) for symbol in symbols)
+    query = f"""
+        SELECT
+            quote_date,
+            underlying_symbol,
+            SUM(trade_volume) AS daily_total_volume
+        FROM read_parquet([{path_literals}])
+        WHERE underlying_symbol IN ({symbol_literals})
+        GROUP BY quote_date, underlying_symbol
+        ORDER BY underlying_symbol, quote_date
+    """
+    connection = duckdb.connect()
+    try:
+        relation = connection.sql(query)
+        rows = relation.fetchall()
+        return pl.DataFrame(
+            rows,
+            schema=relation.columns,
+            orient="row",
+            infer_schema_length=None,
+        )
+    finally:
+        connection.close()
+
+
+def _resolve_option_partition_paths(
+    *,
+    options_dataset_dir: Path,
+    quote_dates: tuple[date, ...],
+) -> list[Path]:
+    return [
+        options_dataset_dir / f"quote_date={quote_date.isoformat()}" / "options_eod_summary.parquet"
+        for quote_date in quote_dates
+        if (
+            options_dataset_dir
+            / f"quote_date={quote_date.isoformat()}"
+            / "options_eod_summary.parquet"
+        ).exists()
+    ]
 
 
 def _slice_offsets(

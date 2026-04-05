@@ -490,9 +490,6 @@ def _resolve_historical_company_for_symbol(
                     search_cache_label=search_query["cache_label"],
                 )
             )
-            best = select_historical_company_candidate(candidate_rows)
-            if best is not None:
-                break
         best = select_historical_company_candidate(candidate_rows)
         if best is not None:
             break

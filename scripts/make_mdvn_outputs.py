@@ -45,6 +45,9 @@ def main() -> None:
     print("Tables:")
     for label, path in artifacts.table_paths.items():
         print(f"  {label}: {path}")
+    print("Memos:")
+    for label, path in artifacts.memo_paths.items():
+        print(f"  {label}: {path}")
 
 
 if __name__ == "__main__":

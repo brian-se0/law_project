@@ -14,6 +14,7 @@ from shadow_trading.io import write_text
 class OutputArtifacts:
     figure_paths: dict[str, Path]
     table_paths: dict[str, Path]
+    memo_paths: dict[str, Path]
 
 
 def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
@@ -23,6 +24,7 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         case_paths.related_firms_file,
         case_paths.exact_contracts_file,
         case_paths.bucket_features_file,
+        case_paths.matched_control_bucket_features_file,
         case_paths.abnormal_metrics_file,
         case_paths.control_matches_file,
     ]
@@ -35,15 +37,24 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
 
     figures_dir = config.paths.outputs_dir / "figures"
     tables_dir = config.paths.outputs_dir / "tables"
+    memos_dir = config.paths.outputs_dir / "memos"
     figures_dir.mkdir(parents=True, exist_ok=True)
     tables_dir.mkdir(parents=True, exist_ok=True)
+    memos_dir.mkdir(parents=True, exist_ok=True)
 
     case_event = pl.read_parquet(case_paths.case_event_file)
     related_firms = pl.read_parquet(case_paths.related_firms_file)
     exact_contracts = pl.read_parquet(case_paths.exact_contracts_file)
     bucket_features = pl.read_parquet(case_paths.bucket_features_file)
+    matched_control_bucket_features = pl.read_parquet(
+        case_paths.matched_control_bucket_features_file
+    )
     abnormal_metrics = pl.read_parquet(case_paths.abnormal_metrics_file)
     control_matches = pl.read_parquet(case_paths.control_matches_file)
+    all_bucket_features = pl.concat(
+        [bucket_features, matched_control_bucket_features],
+        how="vertical_relaxed",
+    )
 
     figure_paths = {
         "timeline": figures_dir / "mdvn_timeline.svg",
@@ -56,7 +67,7 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
     write_text(figure_paths["exact_contracts"], _render_exact_contract_svg(exact_contracts))
     write_text(
         figure_paths["incy_abnormal_activity"],
-        _render_incy_abnormal_svg(config, bucket_features, control_matches),
+        _render_incy_abnormal_svg(config, all_bucket_features, control_matches),
     )
     write_text(figure_paths["linkage_rank"], _render_linkage_rank_svg(config, related_firms))
     write_text(figure_paths["watchlist"], _render_watchlist_svg(config, related_firms))
@@ -117,7 +128,38 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         _build_watchlist_translation_table(config, related_firms, control_matches),
     )
 
-    return OutputArtifacts(figure_paths=figure_paths, table_paths=table_paths)
+    memo_paths = {
+        "watchlist_compliance": memos_dir / "mdvn_watchlist_compliance_memo.md",
+        "limitations": memos_dir / "mdvn_limitations.md",
+    }
+    write_text(
+        memo_paths["watchlist_compliance"],
+        _build_watchlist_compliance_memo(
+            config=config,
+            case_event=case_event,
+            related_firms=related_firms,
+            exact_contracts=exact_contracts,
+            abnormal_metrics=abnormal_metrics,
+            control_matches=control_matches,
+        ),
+    )
+    write_text(
+        memo_paths["limitations"],
+        _build_limitations_memo(
+            config=config,
+            case_event=case_event,
+            related_firms=related_firms,
+            exact_contracts=exact_contracts,
+            abnormal_metrics=abnormal_metrics,
+            control_matches=control_matches,
+        ),
+    )
+
+    return OutputArtifacts(
+        figure_paths=figure_paths,
+        table_paths=table_paths,
+        memo_paths=memo_paths,
+    )
 
 
 def _render_timeline_svg(config: ProjectConfig, case_event: pl.DataFrame) -> str:
@@ -360,6 +402,158 @@ def _build_watchlist_translation_table(
     return _table_with_title("Watchlist translation matrix", rows)
 
 
+def _build_watchlist_compliance_memo(
+    *,
+    config: ProjectConfig,
+    case_event: pl.DataFrame,
+    related_firms: pl.DataFrame,
+    exact_contracts: pl.DataFrame,
+    abnormal_metrics: pl.DataFrame,
+    control_matches: pl.DataFrame,
+) -> str:
+    case_row = case_event.row(0, named=True)
+    incy_row = (
+        abnormal_metrics.filter(
+            pl.col("underlying_symbol") == config.case_study.primary_related_symbol
+        )
+        .sort(["primary_related_pair_flag", "comparison_role"], descending=[True, False])
+        .row(0, named=True)
+    )
+    exact_summary = _summarize_exact_contracts(exact_contracts)
+    top_links = related_firms.head(5).select(
+        [
+            "linked_firm_id",
+            "link_type",
+            "link_score",
+            "linked_rank_within_source",
+            "primary_related_pair_flag",
+        ]
+    )
+    lines = [
+        "# MDVN Watchlist Compliance Memo",
+        "",
+        "## Case Frame",
+        "",
+        (
+            f"The canonical case event is frozen to {case_row['event_id']} with first public "
+            f"disclosure at {case_row['first_public_disclosure_dt']} and trading-date alignment "
+            f"to {case_row['event_trading_date']}. The private-context date remains "
+            f"{case_row['case_private_context_date']}."
+        ),
+        "",
+        "## Related Security Focus",
+        "",
+        (
+            f"The legally focal related security remains {config.case_study.primary_related_symbol}. "
+            "The case-study summary treats abnormal pre-disclosure activity in that related "
+            "single-name option as a shadow-trading risk signal, not proof of unlawful trading."
+        ),
+        "",
+        (
+            f"INCY pre-event short-dated OTM call z-volume mean: "
+            f"{incy_row.get('pre_event_short_dated_otm_call_z_volume_mean')}"
+        ),
+        (
+            f"INCY pre-event short-dated OTM call z-premium mean: "
+            f"{incy_row.get('pre_event_short_dated_otm_call_z_premium_mean')}"
+        ),
+        (
+            f"INCY terminal-case short-dated OTM call z-volume mean: "
+            f"{incy_row.get('terminal_case_short_dated_otm_call_z_volume_mean')}"
+        ),
+        "",
+        "## Exact Complaint-Named Contracts",
+        "",
+        _frame_to_markdown(exact_summary),
+        "",
+        "## Ex Ante Linkage Context",
+        "",
+        _frame_to_markdown(top_links),
+        "",
+        "## Watchlist Translation",
+        "",
+        (
+            "A related-securities watchlist for this fact pattern should cover the source issuer, "
+            f"the focal related security {config.case_study.primary_related_symbol}, other lagged "
+            "horizontal peers retained from the ex ante linkage table, lagged vertical relations "
+            "as unsigned context, and the listed single-name options on those retained names."
+        ),
+        (
+            f"Matched non-linked controls retained for calibration: {control_matches.height}. "
+            "These controls are diagnostic comparators rather than a policy watchlist."
+        ),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _build_limitations_memo(
+    *,
+    config: ProjectConfig,
+    case_event: pl.DataFrame,
+    related_firms: pl.DataFrame,
+    exact_contracts: pl.DataFrame,
+    abnormal_metrics: pl.DataFrame,
+    control_matches: pl.DataFrame,
+) -> str:
+    case_row = case_event.row(0, named=True)
+    lines = [
+        "# MDVN Limitations",
+        "",
+        "## Scope",
+        "",
+        (
+            f"This output is a single-case reconstruction for {config.case_study.case_id}. "
+            "It is designed for reproducibility and legal relevance, not as a generalized "
+            "trading strategy or accusation engine."
+        ),
+        "",
+        "## Measurement Limits",
+        "",
+        (
+            "Open interest is treated as start-of-day OCC open interest. Any opening-demand proxy "
+            "therefore relies on next-day open-interest change and should be read as an approximation."
+        ),
+        (
+            "The primary bucket summaries use daily option data and relative trading-day alignment. "
+            "They do not recover intraday order flow, trader identity, or causal attribution."
+        ),
+        (
+            f"The frozen event row uses first public disclosure timestamp "
+            f"{case_row['first_public_disclosure_dt']} and maps it to trading date "
+            f"{case_row['event_trading_date']}. If later legal work requires a different timestamp "
+            "convention, the event table should be revised explicitly rather than silently re-used."
+        ),
+        "",
+        "## Linkage and Control Limits",
+        "",
+        (
+            "Linkages are lagged ex ante relations. They are useful for watchlist construction, "
+            "but they are not proof that any retained firm was economically material to the deal."
+        ),
+        (
+            f"The related-firm output retains {related_firms.height} names and the exact-contract "
+            f"inventory contains {exact_contracts.height} case-window rows. These counts reflect the "
+            "current processed data slice and should be rechecked whenever the underlying partitions change."
+        ),
+        (
+            f"The matched-control comparison currently uses {control_matches.height} non-linked names. "
+            "Controls are intended for calibration, not for legal inference about any individual security."
+        ),
+        "",
+        "## Legal Interpretation",
+        "",
+        (
+            "Abnormal pre-disclosure activity, suspicious footprints, and shadow-trading risk are "
+            "compliance-oriented descriptions only. They should not be equated with liability or proof "
+            "of insider trading."
+        ),
+        "",
+    ]
+    _ = abnormal_metrics
+    return "\n".join(lines)
+
+
 def _table_with_title(title: str, frame: pl.DataFrame) -> str:
     return f"# {title}\n\n{_frame_to_markdown(frame)}\n"
 
@@ -373,9 +567,16 @@ def _frame_to_markdown(frame: pl.DataFrame) -> str:
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
     for row in frame.iter_rows(named=True):
-        values = [str(row.get(column, "")) for column in headers]
+        values = [_escape_markdown_cell(row.get(column, "")) for column in headers]
         lines.append("| " + " | ".join(values) + " |")
     return "\n".join(lines)
+
+
+def _escape_markdown_cell(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text.replace("\\", "\\\\").replace("\r", " ").replace("\n", " ").replace("|", "\\|")
 
 
 def _line_points(frame: pl.DataFrame, value_column: str, *, max_abs: float) -> str:

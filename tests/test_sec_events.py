@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 import polars as pl
 
+from shadow_trading import sec_events
 from shadow_trading.sec_party import build_company_lookup_index, resolve_deal_parties
 from shadow_trading.sec_events import (
+    _resolve_historical_company_for_symbol,
     _historical_company_candidates_from_search_hit,
     build_historical_symbol_search_queries,
     build_sec_event_universe,
@@ -351,6 +355,104 @@ def test_select_historical_company_candidate_prefers_repeated_strong_hits() -> N
     assert best is not None
     assert best["cik"] == "0000743988"
     assert best["support_hit_count"] == 2
+
+
+def test_resolve_historical_company_for_symbol_scans_all_hits_before_selecting() -> None:
+    class FakeClient:
+        cache_root = Path(".")
+
+    def fake_search_hits(
+        *,
+        client,
+        symbol: str,
+        query: str,
+        cache_label: str,
+        start_date,
+        end_date,
+        candidate_forms,
+        max_results: int,
+    ):  # noqa: ANN001, ARG001
+        if cache_label == "trading_symbol":
+            return []
+        if cache_label == "exchange_nasdaq":
+            return [{"_id": "hit_inotek"}, {"_id": "hit_pfizer"}, {"_id": "hit_medivation"}]
+        return []
+
+    def fake_candidates_from_hit(
+        *,
+        client,
+        symbol: str,
+        hit: dict[str, object],
+        search_cache_label: str = "symbol",
+    ):  # noqa: ANN001, ARG001
+        hit_id = hit["_id"]
+        if hit_id == "hit_inotek":
+            return [
+                {
+                    "cik": "0001281895",
+                    "matched_company_name": "INOTEK PHARMACEUTICALS CORP",
+                    "match_source": "historical_display_name_single_match",
+                    "support_score": 93,
+                    "supporting_accession_number": "0001193125-16-684653",
+                }
+            ]
+        if hit_id == "hit_pfizer":
+            return [
+                {
+                    "cik": "0000078003",
+                    "matched_company_name": "PFIZER INC",
+                    "match_source": "historical_display_name_single_match",
+                    "support_score": 93,
+                    "supporting_accession_number": "0001193125-16-686937",
+                }
+            ]
+        if hit_id == "hit_medivation":
+            return [
+                {
+                    "cik": "0001011835",
+                    "matched_company_name": "MEDIVATION, INC.",
+                    "match_source": "historical_filer_context",
+                    "support_score": 90,
+                    "supporting_accession_number": "0001193125-16-676774",
+                },
+                {
+                    "cik": "0001011835",
+                    "matched_company_name": "MEDIVATION, INC.",
+                    "match_source": "historical_display_name_single_match",
+                    "support_score": 93,
+                    "supporting_accession_number": "0001193125-16-686961",
+                },
+                {
+                    "cik": "0001011835",
+                    "matched_company_name": "MEDIVATION, INC",
+                    "match_source": "historical_company_search_current_name",
+                    "support_score": 95,
+                    "supporting_accession_number": "0001193125-16-676774",
+                },
+            ]
+        return []
+
+    with (
+        patch.object(sec_events, "_search_full_text_symbol_hits", side_effect=fake_search_hits),
+        patch.object(
+            sec_events,
+            "_historical_company_candidates_from_search_hit",
+            side_effect=fake_candidates_from_hit,
+        ),
+    ):
+        resolved = _resolve_historical_company_for_symbol(
+            client=FakeClient(),
+            underlying_symbol="MDVN",
+            normalized_symbol="MDVN",
+            start_date=date(2016, 8, 1),
+            end_date=date(2016, 8, 31),
+            candidate_forms=("8-K", "SC TO-C", "SC TO-T"),
+            max_results=40,
+        )
+
+    assert resolved is not None
+    assert resolved["cik"] == 1011835
+    assert resolved["matched_company_name"] == "MEDIVATION, INC"
 
 
 def test_historical_company_candidates_are_ambiguous_when_runner_up_is_close() -> None:

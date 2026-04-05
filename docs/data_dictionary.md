@@ -395,6 +395,32 @@ Primary fields:
 - `z_spread`
 - `z_lead_oi`
 
+## `data/processed/case_studies/mdvn_matched_control_bucket_features.parquet`
+
+Firm-day-bucket table for the selected matched controls, built from the controls' own option rows over the case-study window.
+
+Primary fields:
+
+- `quote_date`
+- `relative_day`
+- `underlying_symbol`
+- `option_type`
+- `tenor_bucket`
+- `moneyness_bucket`
+- `volume_bucket`
+- `premium_bucket`
+- `delta_notional_bucket`
+- `iv_bucket`
+- `spread_bucket`
+- `lead_oi_change_bucket`
+- `vol_to_oi_bucket`
+- `z_volume`
+- `z_premium`
+- `z_delta_notional`
+- `z_iv`
+- `z_spread`
+- `z_lead_oi`
+
 ## `data/processed/case_studies/mdvn_abnormal_metrics.parquet`
 
 Case-study comparison table spanning linked firms, the source benchmark, and matched controls.
@@ -422,3 +448,28 @@ Primary fields:
 - `return_0`
 - `return_0_1`
 - `source_return_0_1`
+
+## `data/processed/case_studies/mdvn_control_matches.parquet`
+
+Matched non-linked controls retained for the focal related-security benchmark.
+
+Primary fields:
+
+- `case_id`
+- `source_symbol`
+- `primary_related_symbol`
+- `control_firm_id`
+- `match_rank`
+- `match_distance`
+- `estimation_return_std`
+- `estimation_abs_return_mean`
+- `estimation_observed_days`
+- `estimation_mean_daily_option_volume`
+
+## `outputs/memos/mdvn_watchlist_compliance_memo.md`
+
+Scripted memo translating the frozen case, exact-contract inventory, linkage context, and abnormal-activity summary into a related-securities watchlist framing.
+
+## `outputs/memos/mdvn_limitations.md`
+
+Scripted memo listing the legally and empirically important limitations of the current single-case reconstruction.
