@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 MARKET_OPEN = time(9, 30)
 MARKET_CLOSE = time(16, 0)
@@ -25,15 +25,12 @@ def align_announcement_timestamp(
     market_open: time = MARKET_OPEN,
     market_close: time = MARKET_CLOSE,
 ) -> EventAlignment:
-    try:
-        tz = ZoneInfo(timezone)
-        local_dt = (
-            announcement_dt.replace(tzinfo=tz)
-            if announcement_dt.tzinfo is None
-            else announcement_dt.astimezone(tz)
-        )
-    except ZoneInfoNotFoundError:
-        local_dt = _fallback_localize(announcement_dt, timezone)
+    tz = ZoneInfo(timezone)
+    local_dt = (
+        announcement_dt.replace(tzinfo=tz)
+        if announcement_dt.tzinfo is None
+        else announcement_dt.astimezone(tz)
+    )
     announcement_date = local_dt.date()
     clock_time = local_dt.time().replace(tzinfo=None)
     trading_day = is_trading_day(announcement_date)
@@ -138,33 +135,3 @@ def _easter_sunday(year: int) -> date:
     month = (h + offset_l - 7 * m + 114) // 31
     day = ((h + offset_l - 7 * m + 114) % 31) + 1
     return date(year, month, day)
-
-
-def _fallback_localize(announcement_dt: datetime, timezone_name: str) -> datetime:
-    if timezone_name != "America/New_York":
-        return announcement_dt
-
-    if announcement_dt.tzinfo is None:
-        offset = _eastern_utc_offset_hours(announcement_dt.date())
-        return announcement_dt.replace(tzinfo=timezone(timedelta(hours=offset)))
-
-    utc_dt = announcement_dt.astimezone(UTC)
-    local_date = (utc_dt + timedelta(hours=-5)).date()
-    offset = _eastern_utc_offset_hours(local_date)
-    eastern_tz = timezone(timedelta(hours=offset))
-    return utc_dt.astimezone(eastern_tz)
-
-
-def _eastern_utc_offset_hours(local_day: date) -> int:
-    return -4 if _is_us_eastern_dst(local_day) else -5
-
-
-def _is_us_eastern_dst(local_day: date) -> bool:
-    year = local_day.year
-    if year >= 2007:
-        start = _nth_weekday_of_month(year, 3, 6, 2)
-        end = _nth_weekday_of_month(year, 11, 6, 1)
-    else:
-        start = _nth_weekday_of_month(year, 4, 6, 1)
-        end = _last_weekday_of_month(year, 10, 6)
-    return start <= local_day < end

@@ -1,66 +1,68 @@
 # Shadow Trading in U.S. Options Markets
 
-This repository builds a reproducible law-and-economics pipeline for studying abnormal pre-disclosure options activity in economically linked firms around U.S. M&A announcements. The project is designed for interpretability, legal relevance, auditability, and honest limits rather than trading or accusation.
+This repository now centers the primary paper around a single legal-empirical case study:
 
-## Current status
+`MDVN -> INCY` around Pfizer's August 22, 2016 announcement that it would acquire Medivation.
 
-The repo now includes the Milestone 0 and Milestone 1 foundations plus the first live Milestone 3 and Milestone 4 implementation slices:
+The broad SEC event-universe and linkage infrastructure still remains in the repo as reusable support code, but it is no longer the critical path for the first paper-quality deliverable. The main objective is to reconstruct the related-security setting highlighted by `SEC v. Panuwat`, quantify abnormal pre-disclosure options footprints in `INCY` and ex ante linked firms, and translate that evidence into a related-securities watchlist framework.
 
-- project scaffold, config loading, and test wiring
-- vendor-aligned option EOD schema normalization
-- read-only ingestion of zipped daily CSV archives from the vendor raw directory
-- partitioned Parquet output for derived options tables
-- deduplicated underlying-daily table construction with consistency flags
-- SEC M&A event-universe builder with official SEC submissions/raw-filing parsing
-- explicit target/acquirer extraction plus canonical `source_firm_id` fields in the SEC candidate/event tables
-- linkage-table build script, dated `gvkey <-> underlying_symbol` bridge, QC wiring, and unit tests for lagged TNIC/VTNIC ingestion
-- QC report generation with provenance notes
-- unit tests for schema handling, QC logic, and event-date alignment
+## Current repo direction
 
-Event-universe construction is now materially underway, including a broader 2020-2021 validation slice. The linkage-table build is implemented in code but still awaits raw TNIC/VTNIC input files under `data/external/linkages/`.
+Implemented and reusable:
 
-## Quick start
+- vendor-aligned options ingestion and QC
+- deduplicated underlying-daily table construction
+- SEC M&A candidate/event pipeline
+- lagged TNIC/VTNIC linkage build plus dated gvkey bridge
+- MDVN-only case-study config surface
+- frozen-case, bucketing, abnormal-metric, case-study, and output-generation runners
 
-1. Confirm `configs/paths.yaml` points at the immutable raw directory.
-2. Run the first pipeline step on a small slice:
+Current practical limit in this checkout:
+
+- the checked-in processed slice is still mostly a 2020-2021 validation sample plus small 2004 coverage
+- the MDVN case-study code is implemented, but a full live MDVN run still requires the relevant 2016 options partitions and SEC event coverage in the local data
+
+## Case-study run order
+
+1. Confirm `configs/paths.yaml` points at the immutable raw and processed data locations.
+2. Ingest or stage the needed options quote dates.
+3. Build the underlying-daily table.
+4. Build the SEC event universe.
+5. Build lagged linkages.
+6. Freeze the MDVN case event.
+7. Build option buckets and exact-contract tables.
+8. Run the MDVN case study.
+9. Generate scripted figures and tables.
+
+PowerShell examples:
 
 ```powershell
-python scripts/ingest_options.py --project-root . --limit-files 1
-```
-
-3. Build the underlying-daily table from processed options data:
-
-```powershell
+python scripts/ingest_options.py --project-root .
 python scripts/build_underlying_daily.py --project-root .
-```
-
-4. Build the SEC M&A event universe:
-
-```powershell
-python scripts/build_mna_event_universe.py --project-root . --limit-companies 25
-```
-
-5. Build the dated gvkey bridge plus lagged linkage tables once raw TNIC/VTNIC files are placed in `data/external/linkages/`:
-
-```powershell
+python scripts/build_mna_event_universe.py --project-root . --start-date 2016-08-01 --end-date 2016-08-31 --symbols MDVN
 python scripts/build_linkages.py --project-root .
+python scripts/freeze_mdvn_case_event.py --project-root .
+python scripts/build_option_buckets.py --project-root .
+python scripts/run_mdvn_case_study.py --project-root .
+python scripts/make_mdvn_outputs.py --project-root .
 ```
 
-6. Run tests:
+If `make` is available:
 
 ```powershell
-pytest -q
+make freeze-case
+make build-buckets
+make main-study
+make paper
 ```
-
-If `make` is available in your environment, the repo also provides `make ingest-options`, `make build-linkages`, and `make test`.
 
 ## Guardrails
 
-- `D:\Options Data` is treated as immutable input only.
-- The ingestion pipeline reads zipped CSVs directly and never rewrites raw archives.
-- SEC pulls are cached under `data/external/sec/`; raw SEC records are not edited in place.
-- Raw TNIC/VTNIC linkage files should be placed under `data/external/linkages/`; the build step ignores packaged readme files, stages the open `gvkey_ciks` seed when needed, and fails loudly if the actual raw linkage inputs are missing.
+- `data/raw/` is immutable input only.
 - Processed tables are written to Parquet under `data/processed/`.
+- Heavy case-study filtering reads the processed options partitions and uses DuckDB.
 - `open_interest` is treated as start-of-day only.
-- Zero or crossed quotes are flagged and excluded from spread calculations.
-- Suspicious footprints are not described as proof of illegal trading.
+- Opening-demand inference uses next-day open-interest change and is explicitly documented as an approximation.
+- Zero or crossed quotes are excluded from spread calculations rather than treated as clean prices.
+- The repo is not a trading-strategy or accusation engine.
+- Abnormal activity is not described as proof of illegality or liability.

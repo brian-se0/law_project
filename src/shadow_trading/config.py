@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import time
+from datetime import date, time
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 DEFAULT_PATHS_FILE = Path("configs/paths.yaml")
-DEFAULT_PATHS_FALLBACK_FILE = Path("configs/paths.example.yaml")
 DEFAULT_RESEARCH_FILE = Path("configs/research_params.yaml")
 
 
@@ -76,6 +75,59 @@ class WindowConfig:
 
 
 @dataclass(frozen=True)
+class CaseStudyWindowConfig:
+    estimation: tuple[int, int]
+    pre_event: tuple[int, int]
+    terminal_case: tuple[int, int]
+    announcement: tuple[int, int]
+
+
+@dataclass(frozen=True)
+class ExactContractConfig:
+    underlying_symbol: str
+    expiration: date
+    strike: float
+    option_type: str
+    root: str | None = None
+
+    @property
+    def normalized_root(self) -> str:
+        return _normalize_symbol(self.root or self.underlying_symbol)
+
+    @property
+    def series_id(self) -> str:
+        return (
+            f"{_normalize_symbol(self.underlying_symbol)}|"
+            f"{self.normalized_root}|"
+            f"{self.expiration.isoformat()}|"
+            f"{float(self.strike)}|"
+            f"{_normalize_option_type(self.option_type)}"
+        )
+
+
+@dataclass(frozen=True)
+class CaseStudyConfig:
+    mode: str
+    case_id: str
+    source_symbol: str
+    source_name: str
+    source_role: str
+    acquirer_symbol: str | None
+    acquirer_name: str | None
+    primary_related_symbol: str
+    primary_related_name: str
+    public_announcement_date: date
+    case_private_context_date: date | None
+    link_year: int
+    horizontal_link_source: str
+    vertical_link_source: str
+    horizontal_top_k: int
+    include_primary_related_symbol_even_if_not_top_k: bool
+    exact_contracts: tuple[ExactContractConfig, ...]
+    windows: CaseStudyWindowConfig
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     paths: PathsConfig
     ingest_options: IngestOptionsConfig
@@ -84,6 +136,7 @@ class ProjectConfig:
     build_linkages: BuildLinkagesConfig
     market: MarketConfig
     windows: WindowConfig
+    case_study: CaseStudyConfig
 
 
 def load_project_config(
@@ -96,7 +149,6 @@ def load_project_config(
         project_root=root,
         provided=paths_file,
         default_relative=DEFAULT_PATHS_FILE,
-        fallback_relative=DEFAULT_PATHS_FALLBACK_FILE,
     )
     resolved_research_file = _resolve_config_path(
         project_root=root,
@@ -128,6 +180,37 @@ def load_project_config(
     build_linkages_payload = research_payload.get("build_linkages", {})
     market_payload = research_payload.get("market", {})
     windows_payload = research_payload.get("windows", {})
+    case_study_payload = research_payload.get("case_study", {})
+
+    default_windows = {
+        "estimation": windows_payload.get("estimation", [-120, -20]),
+        "pre_event": windows_payload.get("pre_event", [-5, -1]),
+        "announcement": windows_payload.get("announcement", [0, 1]),
+    }
+    case_windows_payload = case_study_payload.get("windows", {})
+    case_exact_contract_payload = case_study_payload.get(
+        "exact_contracts",
+        [
+            {
+                "underlying_symbol": "INCY",
+                "expiration": "2016-09-16",
+                "strike": 80.0,
+                "option_type": "C",
+            },
+            {
+                "underlying_symbol": "INCY",
+                "expiration": "2016-09-16",
+                "strike": 82.5,
+                "option_type": "C",
+            },
+            {
+                "underlying_symbol": "INCY",
+                "expiration": "2016-09-16",
+                "strike": 85.0,
+                "option_type": "C",
+            },
+        ],
+    )
 
     return ProjectConfig(
         paths=paths,
@@ -238,6 +321,70 @@ def load_project_config(
                 "announcement",
             ),
         ),
+        case_study=CaseStudyConfig(
+            mode=str(case_study_payload.get("mode", "mdvn_only")),
+            case_id=str(case_study_payload.get("case_id", "mdvn_panuwat_2016")),
+            source_symbol=_normalize_symbol(case_study_payload.get("source_symbol", "MDVN")),
+            source_name=str(case_study_payload.get("source_name", "Medivation, Inc.")),
+            source_role=str(case_study_payload.get("source_role", "target")),
+            acquirer_symbol=_normalize_optional_symbol(
+                case_study_payload.get("acquirer_symbol", "PFE")
+            ),
+            acquirer_name=_optional_string(case_study_payload.get("acquirer_name", "Pfizer Inc.")),
+            primary_related_symbol=_normalize_symbol(
+                case_study_payload.get("primary_related_symbol", "INCY")
+            ),
+            primary_related_name=str(
+                case_study_payload.get("primary_related_name", "Incyte Corporation")
+            ),
+            public_announcement_date=_parse_date(
+                case_study_payload.get("public_announcement_date", "2016-08-22")
+            ),
+            case_private_context_date=_optional_date(
+                case_study_payload.get("case_private_context_date", "2016-08-18")
+            ),
+            link_year=int(case_study_payload.get("link_year", 2015)),
+            horizontal_link_source=str(case_study_payload.get("horizontal_link_source", "TNIC-3")),
+            vertical_link_source=str(case_study_payload.get("vertical_link_source", "VTNIC_10")),
+            horizontal_top_k=int(case_study_payload.get("horizontal_top_k", 10)),
+            include_primary_related_symbol_even_if_not_top_k=bool(
+                case_study_payload.get(
+                    "include_primary_related_symbol_even_if_not_top_k",
+                    True,
+                )
+            ),
+            exact_contracts=tuple(
+                ExactContractConfig(
+                    underlying_symbol=_normalize_symbol(contract.get("underlying_symbol", "INCY")),
+                    expiration=_parse_date(contract.get("expiration", "2016-09-16")),
+                    strike=float(contract.get("strike", 0.0)),
+                    option_type=_normalize_option_type(contract.get("option_type", "C")),
+                    root=_normalize_optional_symbol(contract.get("root")),
+                )
+                for contract in case_exact_contract_payload
+            ),
+            windows=CaseStudyWindowConfig(
+                estimation=_tuple_of_ints(
+                    case_windows_payload.get("estimation", default_windows["estimation"]),
+                    "case_study.windows.estimation",
+                ),
+                pre_event=_tuple_of_ints(
+                    case_windows_payload.get("pre_event", default_windows["pre_event"]),
+                    "case_study.windows.pre_event",
+                ),
+                terminal_case=_tuple_of_ints(
+                    case_windows_payload.get("terminal_case", [-2, -1]),
+                    "case_study.windows.terminal_case",
+                ),
+                announcement=_tuple_of_ints(
+                    case_windows_payload.get(
+                        "announcement",
+                        default_windows["announcement"],
+                    ),
+                    "case_study.windows.announcement",
+                ),
+            ),
+        ),
     )
 
 
@@ -245,7 +392,6 @@ def _resolve_config_path(
     project_root: Path,
     provided: Path | str | None,
     default_relative: Path,
-    fallback_relative: Path | None = None,
 ) -> Path:
     if provided is not None:
         candidate = Path(provided)
@@ -254,11 +400,6 @@ def _resolve_config_path(
     default_path = (project_root / default_relative).resolve()
     if default_path.exists():
         return default_path
-
-    if fallback_relative is not None:
-        fallback_path = (project_root / fallback_relative).resolve()
-        if fallback_path.exists():
-            return fallback_path
 
     raise FileNotFoundError(f"Missing configuration file: {default_path}")
 
@@ -286,3 +427,40 @@ def _tuple_of_ints(value: Any, field_name: str) -> tuple[int, int]:
     if not isinstance(value, list | tuple) or len(value) != 2:
         raise ValueError(f"{field_name} must be a 2-item list or tuple.")
     return int(value[0]), int(value[1])
+
+
+def _parse_date(value: Any) -> date:
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
+
+
+def _optional_date(value: Any) -> date | None:
+    if value in {None, ""}:
+        return None
+    return _parse_date(value)
+
+
+def _optional_string(value: Any) -> str | None:
+    if value in {None, ""}:
+        return None
+    return str(value)
+
+
+def _normalize_symbol(value: Any) -> str:
+    return str(value).strip().upper().replace("/", ".").replace("-", ".")
+
+
+def _normalize_optional_symbol(value: Any) -> str | None:
+    if value in {None, ""}:
+        return None
+    return _normalize_symbol(value)
+
+
+def _normalize_option_type(value: Any) -> str:
+    normalized = str(value).strip().upper()
+    if normalized == "CALL":
+        return "C"
+    if normalized == "PUT":
+        return "P"
+    return normalized

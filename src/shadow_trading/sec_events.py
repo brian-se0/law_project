@@ -157,7 +157,7 @@ def build_sec_event_candidates(
     )
     ticker_frame = fetch_company_ticker_frame(client)
     matched_companies = match_option_symbols_to_sec_companies(option_symbols, ticker_frame)
-    historical_matches = match_unmatched_option_symbols_to_historical_sec_companies(
+    historical_resolutions = resolve_historical_sec_companies(
         client=client,
         option_symbols=option_symbols,
         matched_companies=matched_companies,
@@ -165,10 +165,10 @@ def build_sec_event_candidates(
         end_date=end_date,
         candidate_forms=candidate_forms,
     )
-    historical_match_count = historical_matches.height
-    if historical_matches.height:
+    historical_resolution_count = historical_resolutions.height
+    if historical_resolutions.height:
         matched_companies = pl.concat(
-            [matched_companies, historical_matches.select(matched_companies.columns)],
+            [matched_companies, historical_resolutions.select(matched_companies.columns)],
             how="vertical_relaxed",
         )
         matched_companies = matched_companies.unique(subset=["underlying_symbol", "cik"])
@@ -206,7 +206,7 @@ def build_sec_event_candidates(
         "end_date": end_date.isoformat(),
         "option_symbol_count": option_symbols.height,
         "matched_company_count": matched_companies.height,
-        "historical_match_count": historical_match_count,
+        "historical_resolution_count": historical_resolution_count,
         "companies_scanned": companies_scanned,
     }
     return candidates, metadata
@@ -262,7 +262,7 @@ def build_sec_event_qc_report(
         "end_date": metadata["end_date"],
         "option_symbol_count": metadata["option_symbol_count"],
         "matched_company_count": metadata["matched_company_count"],
-        "historical_match_count": metadata.get("historical_match_count", 0),
+        "historical_resolution_count": metadata.get("historical_resolution_count", 0),
         "companies_scanned": metadata["companies_scanned"],
         "candidate_filing_count": candidates.height,
         "mna_candidate_count": (
@@ -311,7 +311,7 @@ def render_sec_event_qc_markdown(report: dict[str, Any]) -> str:
         f"- Date range: {report['start_date']} to {report['end_date']}",
         f"- Option symbols considered: {report['option_symbol_count']:,}",
         f"- Matched SEC companies: {report['matched_company_count']:,}",
-        f"- Historical fallback matches: {report['historical_match_count']:,}",
+        f"- Historical SEC resolutions: {report['historical_resolution_count']:,}",
         f"- Companies scanned: {report['companies_scanned']:,}",
         f"- Candidate filings: {report['candidate_filing_count']:,}",
         f"- Classified M&A candidates: {report['mna_candidate_count']:,}",
@@ -414,7 +414,7 @@ def match_option_symbols_to_sec_companies(
     )
 
 
-def match_unmatched_option_symbols_to_historical_sec_companies(
+def resolve_historical_sec_companies(
     *,
     client: SecClient,
     option_symbols: pl.DataFrame,
@@ -430,7 +430,7 @@ def match_unmatched_option_symbols_to_historical_sec_companies(
         how="anti",
     )
     if unmatched_symbols.height == 0:
-        return _empty_historical_match_frame()
+        return _empty_historical_resolution_frame()
 
     rows: list[dict[str, Any]] = []
     for symbol_row in unmatched_symbols.iter_rows(named=True):
@@ -447,7 +447,7 @@ def match_unmatched_option_symbols_to_historical_sec_companies(
             rows.append(resolved)
 
     if not rows:
-        return _empty_historical_match_frame()
+        return _empty_historical_resolution_frame()
     return (
         pl.from_dicts(rows)
         .with_columns(
@@ -509,10 +509,10 @@ def _resolve_historical_company_for_symbol(
         "matched_ticker": normalized_symbol,
         "matched_exchange": None,
         "normalized_company_name": normalize_company_name(best["matched_company_name"]),
-        "historical_match_source": best["match_source"],
-        "historical_support_score": int(best["support_score"]),
-        "historical_support_hit_count": int(best["support_hit_count"]),
-        "historical_supporting_accessions": ";".join(sorted(set(best["supporting_accessions"]))),
+        "historical_resolution_source": best["match_source"],
+        "historical_resolution_score": int(best["support_score"]),
+        "historical_resolution_hit_count": int(best["support_hit_count"]),
+        "historical_resolution_accessions": ";".join(sorted(set(best["supporting_accessions"]))),
     }
 
 
@@ -649,10 +649,7 @@ def _search_full_text_symbol_hits(
                 f"{symbol}_{cache_label}_{start_date.isoformat()}_{end_date.isoformat()}_{offset}.json"
             )
         )
-        try:
-            payload = client.fetch_json(f"{FULL_TEXT_SEARCH_URL}?{urlencode(params)}", cache_path)
-        except Exception:
-            break
+        payload = client.fetch_json(f"{FULL_TEXT_SEARCH_URL}?{urlencode(params)}", cache_path)
         page_hits = payload.get("hits", {}).get("hits", [])
         for hit in page_hits:
             hit_id = str(hit.get("_id", ""))
@@ -1636,7 +1633,7 @@ def _candidate_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
     return pl.from_dicts(rows)
 
 
-def _empty_historical_match_frame() -> pl.DataFrame:
+def _empty_historical_resolution_frame() -> pl.DataFrame:
     return pl.DataFrame(
         schema={
             "underlying_symbol": pl.String,
@@ -1647,10 +1644,10 @@ def _empty_historical_match_frame() -> pl.DataFrame:
             "matched_exchange": pl.String,
             "normalized_company_name": pl.String,
             "matched_company_slug": pl.String,
-            "historical_match_source": pl.String,
-            "historical_support_score": pl.Int64,
-            "historical_support_hit_count": pl.Int64,
-            "historical_supporting_accessions": pl.String,
+            "historical_resolution_source": pl.String,
+            "historical_resolution_score": pl.Int64,
+            "historical_resolution_hit_count": pl.Int64,
+            "historical_resolution_accessions": pl.String,
         }
     )
 

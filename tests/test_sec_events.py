@@ -307,7 +307,7 @@ def test_search_sec_company_candidates_by_name_uses_sec_company_page() -> None:
     ]
 
 
-def test_build_historical_symbol_search_queries_adds_targeted_fallbacks() -> None:
+def test_build_historical_symbol_search_queries_adds_targeted_queries() -> None:
     queries = build_historical_symbol_search_queries("VAR")
 
     assert queries[0] == {"cache_label": "trading_symbol", "query": '"symbol VAR"'}

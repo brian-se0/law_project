@@ -304,3 +304,121 @@ Structured QC artifact with:
 - linkage-type counts
 - bridge-method counts
 - provenance note for the linkage build
+
+## `data/processed/case_studies/mdvn_case_event.parquet`
+
+Frozen one-row case-event table for the `MDVN -> INCY` case study.
+
+Primary fields:
+
+- `case_id`
+- `event_id`
+- `source_firm_id`
+- `source_symbol`
+- `source_name`
+- `target_cik`
+- `target_gvkey`
+- `acquirer_symbol`
+- `acquirer_cik`
+- `first_public_disclosure_dt`
+- `event_trading_date`
+- `case_private_context_date`
+- `review_status`
+- `review_note`
+- `evidence_source`
+
+## `data/processed/case_studies/mdvn_related_firms.parquet`
+
+Lagged ex ante related-firm table retained for the case study.
+
+Primary fields:
+
+- `case_id`
+- `source_symbol`
+- `source_firm_id`
+- `linked_firm_id`
+- `link_type`
+- `link_year`
+- `link_score`
+- `linked_rank_within_source`
+- `linked_percentile_within_source`
+- `primary_related_pair_flag`
+
+## `data/processed/case_studies/mdvn_exact_contracts.parquet`
+
+Daily exact-series table for the complaint-named `INCY` contracts.
+
+Primary fields:
+
+- `quote_date`
+- `relative_day`
+- `series_id`
+- `underlying_symbol`
+- `expiration`
+- `strike`
+- `option_type`
+- `contract_volume`
+- `contract_premium`
+- `contract_lead_oi_change`
+- `contract_rel_spread_1545`
+- `contract_iv_1545`
+- `contract_volume_share_of_underlying_call_volume`
+- `contract_volume_share_of_same_expiry_call_volume`
+- `z_contract_volume`
+- `z_contract_premium`
+- `z_contract_lead_oi`
+- `z_contract_iv`
+
+## `data/processed/case_studies/mdvn_bucket_features.parquet`
+
+Firm-day-bucket table for case-study symbols around the frozen event.
+
+Primary fields:
+
+- `quote_date`
+- `relative_day`
+- `underlying_symbol`
+- `option_type`
+- `tenor_bucket`
+- `moneyness_bucket`
+- `volume_bucket`
+- `premium_bucket`
+- `delta_notional_bucket`
+- `iv_bucket`
+- `spread_bucket`
+- `lead_oi_change_bucket`
+- `vol_to_oi_bucket`
+- `z_volume`
+- `z_premium`
+- `z_delta_notional`
+- `z_iv`
+- `z_spread`
+- `z_lead_oi`
+
+## `data/processed/case_studies/mdvn_abnormal_metrics.parquet`
+
+Case-study comparison table spanning linked firms, the source benchmark, and matched controls.
+
+Primary fields:
+
+- `case_id`
+- `comparison_role`
+- `underlying_symbol`
+- `primary_related_pair_flag`
+- `link_type`
+- `link_score`
+- `linked_rank_within_source`
+- `linked_percentile_within_source`
+- `match_rank`
+- `match_distance`
+- `pre_event_short_dated_otm_call_z_volume_mean`
+- `pre_event_short_dated_otm_call_z_premium_mean`
+- `pre_event_short_dated_otm_call_z_delta_notional_mean`
+- `pre_event_short_dated_otm_call_z_lead_oi_mean`
+- `terminal_case_short_dated_otm_call_z_volume_mean`
+- `terminal_case_short_dated_otm_call_z_premium_mean`
+- `announcement_short_dated_otm_call_z_volume_mean`
+- `announcement_short_dated_otm_call_z_premium_mean`
+- `return_0`
+- `return_0_1`
+- `source_return_0_1`

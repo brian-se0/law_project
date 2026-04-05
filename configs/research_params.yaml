@@ -55,3 +55,39 @@ windows:
   estimation: [-120, -20]
   pre_event: [-5, -1]
   announcement: [0, 1]
+
+case_study:
+  mode: mdvn_only
+  case_id: mdvn_panuwat_2016
+  source_symbol: MDVN
+  source_name: Medivation, Inc.
+  source_role: target
+  acquirer_symbol: PFE
+  acquirer_name: Pfizer Inc.
+  primary_related_symbol: INCY
+  primary_related_name: Incyte Corporation
+  public_announcement_date: 2016-08-22
+  case_private_context_date: 2016-08-18
+  link_year: 2015
+  horizontal_link_source: TNIC-3
+  vertical_link_source: VTNIC_10
+  horizontal_top_k: 10
+  include_primary_related_symbol_even_if_not_top_k: true
+  exact_contracts:
+    - underlying_symbol: INCY
+      expiration: 2016-09-16
+      strike: 80.0
+      option_type: C
+    - underlying_symbol: INCY
+      expiration: 2016-09-16
+      strike: 82.5
+      option_type: C
+    - underlying_symbol: INCY
+      expiration: 2016-09-16
+      strike: 85.0
+      option_type: C
+  windows:
+    estimation: [-120, -20]
+    pre_event: [-5, -1]
+    terminal_case: [-2, -1]
+    announcement: [0, 1]

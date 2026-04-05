@@ -10,6 +10,14 @@ import polars as pl
 
 from shadow_trading.config import ProjectConfig
 from shadow_trading.io import discover_input_archives, ensure_directories, write_json, write_text
+from shadow_trading.case_study import (
+    BuildBucketsArtifacts as CaseBuildBucketsArtifacts,
+    CaseStudyArtifacts as MdvnCaseStudyArtifacts,
+    FreezeCaseArtifacts as MdvnFreezeCaseArtifacts,
+    build_case_buckets,
+    freeze_case_event,
+    run_case_study,
+)
 from shadow_trading.linkages import (
     build_gvkey_underlying_bridge,
     build_linkage_qc_report,
@@ -35,6 +43,7 @@ from shadow_trading.underlyings import (
     build_underlying_daily_qc_report,
     render_underlying_daily_qc_markdown,
 )
+from shadow_trading.plots import OutputArtifacts as CaseOutputArtifacts, make_case_study_outputs
 
 ARCHIVE_DATE_PATTERN = re.compile(r"_(\d{4}-\d{2}-\d{2})\.zip$", re.IGNORECASE)
 
@@ -108,6 +117,26 @@ class BuildLinkagesArtifacts:
     bridge_row_count: int
     linkage_row_count: int
     control_row_count: int
+
+
+@dataclass(frozen=True)
+class FreezeCaseRunOptions:
+    overwrite: bool = False
+
+
+@dataclass(frozen=True)
+class BuildBucketsRunOptions:
+    overwrite: bool = False
+
+
+@dataclass(frozen=True)
+class RunCaseStudyRunOptions:
+    overwrite: bool = False
+
+
+@dataclass(frozen=True)
+class MakeOutputsRunOptions:
+    pass
 
 
 def run_options_ingest(
@@ -400,6 +429,38 @@ def run_linkage_build(
         linkage_row_count=linkages.height,
         control_row_count=controls.height,
     )
+
+
+def run_case_event_freeze(
+    config: ProjectConfig,
+    run_options: FreezeCaseRunOptions | None = None,
+) -> MdvnFreezeCaseArtifacts:
+    options = run_options or FreezeCaseRunOptions()
+    return freeze_case_event(config, overwrite=options.overwrite)
+
+
+def run_case_bucket_build(
+    config: ProjectConfig,
+    run_options: BuildBucketsRunOptions | None = None,
+) -> CaseBuildBucketsArtifacts:
+    options = run_options or BuildBucketsRunOptions()
+    return build_case_buckets(config, overwrite=options.overwrite)
+
+
+def run_mdvn_case_study(
+    config: ProjectConfig,
+    run_options: RunCaseStudyRunOptions | None = None,
+) -> MdvnCaseStudyArtifacts:
+    options = run_options or RunCaseStudyRunOptions()
+    return run_case_study(config, overwrite=options.overwrite)
+
+
+def run_case_output_build(
+    config: ProjectConfig,
+    run_options: MakeOutputsRunOptions | None = None,
+) -> CaseOutputArtifacts:
+    _ = run_options or MakeOutputsRunOptions()
+    return make_case_study_outputs(config)
 
 
 def _filter_archives(

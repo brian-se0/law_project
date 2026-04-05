@@ -1,4 +1,4 @@
-.PHONY: init ingest-options build-underlyings build-events build-linkages build-buckets replicate main-study policy-text paper test
+.PHONY: init ingest-options build-underlyings build-events build-linkages freeze-case build-buckets main-study paper test
 
 PYTHON ?= python
 
@@ -17,20 +17,17 @@ build-events:
 build-linkages:
 	$(PYTHON) scripts/build_linkages.py --project-root .
 
-build-buckets:
-	@echo "Not implemented yet. Next planned script: scripts/build_option_buckets.py"
+freeze-case:
+	$(PYTHON) scripts/freeze_mdvn_case_event.py --project-root .
 
-replicate:
-	@echo "Not implemented yet. Next planned script: scripts/run_replication.py"
+build-buckets:
+	$(PYTHON) scripts/build_option_buckets.py --project-root .
 
 main-study:
-	@echo "Not implemented yet. Next planned script: scripts/run_shadow_study.py"
-
-policy-text:
-	@echo "Not implemented yet. Next planned script: scripts/parse_policies.py"
+	$(PYTHON) scripts/run_mdvn_case_study.py --project-root .
 
 paper:
-	@echo "Not implemented yet. Next planned script: scripts/make_paper_outputs.py"
+	$(PYTHON) scripts/make_mdvn_outputs.py --project-root .
 
 test:
 	$(PYTHON) -m pytest -q
