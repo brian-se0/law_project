@@ -268,6 +268,8 @@ def build_exact_contract_features(
                 pl.col("lead_open_interest_change").alias("contract_lead_oi_change"),
                 pl.col("rel_spread_1545").alias("contract_rel_spread_1545"),
                 pl.col("implied_volatility_1545").alias("contract_iv_1545"),
+                pl.col("underlying_call_volume"),
+                pl.col("same_expiry_call_volume"),
                 pl.when(pl.col("underlying_call_volume") > 0)
                 .then(pl.col("trade_volume") / pl.col("underlying_call_volume"))
                 .otherwise(None)
@@ -293,6 +295,8 @@ def build_exact_contract_features(
                 "contract_lead_oi_change",
                 "contract_rel_spread_1545",
                 "contract_iv_1545",
+                "underlying_call_volume",
+                "same_expiry_call_volume",
                 "contract_volume_share_of_underlying_call_volume",
                 "contract_volume_share_of_same_expiry_call_volume",
                 "litigated_contract_flag",
@@ -304,6 +308,34 @@ def build_exact_contract_features(
         )
         .sort(["series_id", "quote_date"])
     )
+
+
+def validate_case_study_calcs(option_rows: pl.DataFrame) -> None:
+    if option_rows.height == 0:
+        return
+
+    missing_calcs = option_rows.filter(~pl.col("has_calcs").fill_null(False))
+    if missing_calcs.height:
+        raise ValueError(
+            "Case-study rows require Calcs-backed fields; found rows without `has_calcs` for "
+            f"{_sample_series_ids(missing_calcs)}."
+        )
+
+    missing_delta = option_rows.filter(pl.col("delta_1545").is_null())
+    if missing_delta.height:
+        raise ValueError(
+            "Case-study rows require non-null `delta_1545` for delta-based moneyness buckets; "
+            f"found null delta rows for {_sample_series_ids(missing_delta)}."
+        )
+
+    missing_exact_iv = option_rows.filter(
+        pl.col("litigated_contract_flag") & pl.col("implied_volatility_1545").is_null()
+    )
+    if missing_exact_iv.height:
+        raise ValueError(
+            "Case-study exact-contract rows require non-null `implied_volatility_1545`; found "
+            f"missing IV for {_sample_series_ids(missing_exact_iv)}."
+        )
 
 
 def build_bucket_features(option_rows: pl.DataFrame) -> pl.DataFrame:
@@ -454,8 +486,9 @@ def summarize_bucket_build(
         "provenance_note": (
             "Built from the processed options parquet partitions for the case-study event window. "
             "The extraction step filters the large contract tables with DuckDB, "
-            "computes next-day open-interest changes only when the exact next trading day is observed, "
-            "and uses strike-vs-spot moneyness bands when Greeks are unavailable."
+            "computes next-day open-interest changes only when the exact next trading day is "
+            "observed, and requires Calcs-backed rows for delta-based moneyness and exact-series "
+            "abnormal metrics."
         ),
     }
 
@@ -598,30 +631,19 @@ def _moneyness_bucket_expr() -> pl.Expr:
         .then(pl.lit("put_atm"))
         .otherwise(None)
     )
-    price_ratio = (
-        pl.when(pl.col("s_1545") > 0).then(pl.col("strike") / pl.col("s_1545")).otherwise(None)
-    )
-    price_bucket = (
-        pl.when((pl.col("option_type") == "C") & (price_ratio > 1.02))
-        .then(pl.lit("call_otm"))
-        .when((pl.col("option_type") == "C") & (price_ratio >= 0.98) & (price_ratio <= 1.02))
-        .then(pl.lit("call_atm"))
-        .when((pl.col("option_type") == "P") & (price_ratio < 0.98))
-        .then(pl.lit("put_otm"))
-        .when((pl.col("option_type") == "P") & (price_ratio >= 0.98) & (price_ratio <= 1.02))
-        .then(pl.lit("put_atm"))
-        .otherwise(pl.lit("other"))
-    )
-    return (
-        pl.when(pl.col("has_calcs") & pl.col("delta_1545").is_not_null())
-        .then(delta_bucket)
-        .otherwise(price_bucket)
-        .fill_null("other")
-    )
+    return delta_bucket.fill_null("other")
 
 
 def _sql_string_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _sample_series_ids(frame: pl.DataFrame, *, limit: int = 3) -> str:
+    series_ids = frame.get_column("series_id").drop_nulls().unique().sort().head(limit).to_list()
+    if not series_ids:
+        return "the selected case-study rows"
+    suffix = "..." if frame.get_column("series_id").drop_nulls().unique().len() > limit else ""
+    return ", ".join(str(series_id) for series_id in series_ids) + suffix
 
 
 def _empty_option_row_frame() -> pl.DataFrame:

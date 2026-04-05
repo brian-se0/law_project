@@ -5,7 +5,7 @@ from pathlib import Path
 
 import polars as pl
 
-from shadow_trading.case_study import build_case_study_paths
+from shadow_trading.case_study import build_case_study_paths, summarize_exact_contract_windows
 from shadow_trading.config import ProjectConfig
 from shadow_trading.io import write_text
 
@@ -44,6 +44,7 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
 
     case_event = pl.read_parquet(case_paths.case_event_file)
     related_firms = pl.read_parquet(case_paths.related_firms_file)
+    related_firms_display = _display_related_firms(related_firms)
     exact_contracts = pl.read_parquet(case_paths.exact_contracts_file)
     bucket_features = pl.read_parquet(case_paths.bucket_features_file)
     matched_control_bucket_features = pl.read_parquet(
@@ -51,6 +52,11 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
     )
     abnormal_metrics = pl.read_parquet(case_paths.abnormal_metrics_file)
     control_matches = pl.read_parquet(case_paths.control_matches_file)
+    exact_contract_window_summary = summarize_exact_contract_windows(
+        exact_contracts=exact_contracts,
+        expected_exact_contracts=config.case_study.exact_contracts,
+        windows=config.case_study.windows,
+    )
     all_bucket_features = pl.concat(
         [bucket_features, matched_control_bucket_features],
         how="vertical_relaxed",
@@ -69,12 +75,15 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         figure_paths["incy_abnormal_activity"],
         _render_incy_abnormal_svg(config, all_bucket_features, control_matches),
     )
-    write_text(figure_paths["linkage_rank"], _render_linkage_rank_svg(config, related_firms))
-    write_text(figure_paths["watchlist"], _render_watchlist_svg(config, related_firms))
+    write_text(
+        figure_paths["linkage_rank"], _render_linkage_rank_svg(config, related_firms_display)
+    )
+    write_text(figure_paths["watchlist"], _render_watchlist_svg(config, related_firms_display))
 
     table_paths = {
         "chronology": tables_dir / "mdvn_case_chronology.md",
         "exact_contracts": tables_dir / "mdvn_exact_contract_inventory.md",
+        "exact_contract_windows": tables_dir / "mdvn_exact_contract_window_summary.md",
         "comparison": tables_dir / "mdvn_incy_vs_linked_vs_controls.md",
         "linkage_rank": tables_dir / "mdvn_linkage_rankings.md",
         "watchlist": tables_dir / "mdvn_watchlist_translation.md",
@@ -87,9 +96,13 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         ),
     )
     write_text(
+        table_paths["exact_contract_windows"],
+        _table_with_title("Exact contract window summary", exact_contract_window_summary),
+    )
+    write_text(
         table_paths["comparison"],
         _table_with_title(
-            "INCY vs linked firms vs matched controls",
+            "INCY vs linked firms vs matched controls (bucket benchmark)",
             abnormal_metrics.select(
                 [
                     "comparison_role",
@@ -110,7 +123,7 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         table_paths["linkage_rank"],
         _table_with_title(
             "Ex ante linkage ranking",
-            related_firms.select(
+            related_firms_display.select(
                 [
                     "linked_firm_id",
                     "linked_name",
@@ -137,8 +150,9 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         _build_watchlist_compliance_memo(
             config=config,
             case_event=case_event,
-            related_firms=related_firms,
+            related_firms=related_firms_display,
             exact_contracts=exact_contracts,
+            exact_contract_window_summary=exact_contract_window_summary,
             abnormal_metrics=abnormal_metrics,
             control_matches=control_matches,
         ),
@@ -148,7 +162,7 @@ def make_case_study_outputs(config: ProjectConfig) -> OutputArtifacts:
         _build_limitations_memo(
             config=config,
             case_event=case_event,
-            related_firms=related_firms,
+            related_firms=related_firms_display,
             exact_contracts=exact_contracts,
             abnormal_metrics=abnormal_metrics,
             control_matches=control_matches,
@@ -168,15 +182,15 @@ def _render_timeline_svg(config: ProjectConfig, case_event: pl.DataFrame) -> str
     public_date = row.get("event_trading_date")
     disclosure_dt = row.get("first_public_disclosure_dt")
     labels = [
-        (110, f"Private context: {private_date}"),
-        (330, f"Public disclosure: {disclosure_dt}"),
-        (550, f"t = 0 trading date: {public_date}"),
+        (110, 120, f"Private context: {private_date}"),
+        (330, 138, f"Public disclosure: {disclosure_dt}"),
+        (550, 156, f"t = 0 trading date: {public_date}"),
     ]
     text_elements = "\n".join(
-        f'<text x="{x}" y="120" font-size="14">{label}</text>' for x, label in labels
+        f'<text x="{x}" y="{y}" font-size="14">{label}</text>' for x, y, label in labels
     )
     circle_elements = "\n".join(
-        f'<circle cx="{x}" cy="80" r="9" fill="#0f766e" />' for x, _ in labels
+        f'<circle cx="{x}" cy="80" r="9" fill="#0f766e" />' for x, _, _ in labels
     )
     return _svg_wrapper(
         "MDVN / Pfizer / INCY timeline",
@@ -188,7 +202,7 @@ def _render_timeline_svg(config: ProjectConfig, case_event: pl.DataFrame) -> str
             {config.case_study.case_id}: event frozen from SEC-source timing evidence.
         </text>
         """,
-        height=220,
+        height=240,
     )
 
 
@@ -247,7 +261,7 @@ def _render_incy_abnormal_svg(
     incy = focal.filter(pl.col("underlying_symbol") == config.case_study.primary_related_symbol)
     if incy.height == 0:
         return _placeholder_svg(
-            "INCY abnormal-activity figure",
+            "INCY bucket benchmark sensitivity",
             "No short-dated OTM call rows were available for the primary related symbol.",
         )
 
@@ -281,7 +295,7 @@ def _render_incy_abnormal_svg(
     incy_points = _line_points(incy_line, "z_volume", max_abs=max_abs)
     control_points = _line_points(control_mean, "control_mean_z_volume", max_abs=max_abs)
     return _svg_wrapper(
-        "INCY abnormal short-dated OTM call activity",
+        "INCY short-dated OTM call benchmark sensitivity",
         f"""
         <line x1="70" y1="190" x2="560" y2="190" stroke="#94a3b8" stroke-dasharray="4 4" />
         <line x1="70" y1="300" x2="560" y2="300" stroke="#0f172a" />
@@ -314,8 +328,15 @@ def _render_linkage_rank_svg(config: ProjectConfig, related_firms: pl.DataFrame)
         width = 20 + (float(row.get("link_score") or 0.0) / max_score) * 260
         fill = "#0f766e" if row.get("primary_related_pair_flag") else "#94a3b8"
         label = row.get("linked_firm_id")
+        rank = row.get("linked_rank_within_source")
+        score = row.get("link_score")
+        rank_label = f"rank {int(rank)}" if rank is not None else "case anchor"
+        score_label = f"score {float(score):.3f}" if score is not None else "score n/a"
         bars.append(f'<rect x="180" y="{y}" width="{width}" height="16" fill="{fill}" rx="3" />')
         bars.append(f'<text x="40" y="{y + 12}" font-size="12">{label}</text>')
+        bars.append(
+            f'<text x="{int(180 + width + 12)}" y="{y + 12}" font-size="11">{rank_label}; {score_label}</text>'
+        )
     return _svg_wrapper(
         "INCY within MDVN's ex ante linkage set",
         "\n".join(bars),
@@ -324,7 +345,7 @@ def _render_linkage_rank_svg(config: ProjectConfig, related_firms: pl.DataFrame)
 
 
 def _render_watchlist_svg(config: ProjectConfig, related_firms: pl.DataFrame) -> str:
-    horizontal_count = related_firms.filter(pl.col("link_type") == "horizontal_tnic").height
+    horizontal_count = _other_horizontal_peer_count(config, related_firms)
     vertical_count = related_firms.filter(pl.col("link_type") == "vertical_vtnic").height
     return _svg_wrapper(
         "Related-securities watchlist framework",
@@ -335,7 +356,7 @@ def _render_watchlist_svg(config: ProjectConfig, related_firms: pl.DataFrame) ->
         <text x="60" y="92" font-size="16">Source issuer</text>
         <text x="60" y="116" font-size="14">{config.case_study.source_symbol}</text>
         <text x="280" y="92" font-size="16">Explicit comparable set</text>
-        <text x="280" y="116" font-size="14">{config.case_study.primary_related_symbol} plus {horizontal_count} lagged TNIC peers</text>
+        <text x="280" y="116" font-size="14">{config.case_study.primary_related_symbol} plus {horizontal_count} other lagged TNIC {_count_noun(horizontal_count, "peer", "peers")}</text>
         <text x="500" y="92" font-size="16">Vertical context</text>
         <text x="500" y="116" font-size="14">{vertical_count} lagged VTNIC relations</text>
         <text x="40" y="210" font-size="15">Policy output: cover related single-name shares and their listed options before public disclosure.</text>
@@ -368,7 +389,7 @@ def _build_watchlist_translation_table(
     related_firms: pl.DataFrame,
     control_matches: pl.DataFrame,
 ) -> str:
-    horizontal_count = related_firms.filter(pl.col("link_type") == "horizontal_tnic").height
+    horizontal_count = _other_horizontal_peer_count(config, related_firms)
     vertical_count = related_firms.filter(pl.col("link_type") == "vertical_vtnic").height
     rows = pl.DataFrame(
         [
@@ -379,7 +400,10 @@ def _build_watchlist_translation_table(
             },
             {
                 "rule_component": "Lagged horizontal peers",
-                "case_application": f"{horizontal_count} retained TNIC names",
+                "case_application": (
+                    f"{config.case_study.primary_related_symbol} plus {horizontal_count} other "
+                    f"retained TNIC {_count_noun(horizontal_count, 'peer', 'peers')}"
+                ),
                 "watchlist_decision": "Include with ranked documentation",
             },
             {
@@ -408,6 +432,7 @@ def _build_watchlist_compliance_memo(
     case_event: pl.DataFrame,
     related_firms: pl.DataFrame,
     exact_contracts: pl.DataFrame,
+    exact_contract_window_summary: pl.DataFrame,
     abnormal_metrics: pl.DataFrame,
     control_matches: pl.DataFrame,
 ) -> str:
@@ -420,6 +445,16 @@ def _build_watchlist_compliance_memo(
         .row(0, named=True)
     )
     exact_summary = _summarize_exact_contracts(exact_contracts)
+    pooled_pre_event = _select_exact_window_row(
+        exact_contract_window_summary,
+        summary_scope="pooled",
+        window_label="pre_event",
+    )
+    pooled_terminal = _select_exact_window_row(
+        exact_contract_window_summary,
+        summary_scope="pooled",
+        window_label="terminal_case",
+    )
     top_links = related_firms.head(5).select(
         [
             "linked_firm_id",
@@ -449,18 +484,40 @@ def _build_watchlist_compliance_memo(
             "single-name option as a shadow-trading risk signal, not proof of unlawful trading."
         ),
         "",
+        "## Empirical Lead",
+        "",
         (
-            f"INCY pre-event short-dated OTM call z-volume mean: "
-            f"{incy_row.get('pre_event_short_dated_otm_call_z_volume_mean')}"
+            "The headline evidence in this case study is the pooled exact-series summary for the "
+            "configured complaint-named INCY contracts."
         ),
         (
-            f"INCY pre-event short-dated OTM call z-premium mean: "
-            f"{incy_row.get('pre_event_short_dated_otm_call_z_premium_mean')}"
+            f"Pooled exact-series pre-event [{pooled_pre_event.get('window_start')},"
+            f"{pooled_pre_event.get('window_end')}]: mean z-volume "
+            f"{_format_metric(pooled_pre_event.get('mean_z_contract_volume'))}, mean z-premium "
+            f"{_format_metric(pooled_pre_event.get('mean_z_contract_premium'))}, mean z-lead OI "
+            f"{_format_metric(pooled_pre_event.get('mean_z_contract_lead_oi'))}, pooled raw volume "
+            f"{_format_count(pooled_pre_event.get('pooled_contract_volume'))}, share of all INCY "
+            f"call volume {_format_pct(pooled_pre_event.get('pooled_share_of_underlying_call_volume'))}, "
+            f"and share of same-expiry call volume "
+            f"{_format_pct(pooled_pre_event.get('pooled_share_of_same_expiry_call_volume'))}."
         ),
         (
-            f"INCY terminal-case short-dated OTM call z-volume mean: "
-            f"{incy_row.get('terminal_case_short_dated_otm_call_z_volume_mean')}"
+            f"Terminal-case bucket benchmark [{pooled_terminal.get('window_start')},"
+            f"{pooled_terminal.get('window_end')}]: INCY short-dated OTM call z-volume mean "
+            f"{_format_metric(incy_row.get('terminal_case_short_dated_otm_call_z_volume_mean'))} "
+            f"and z-premium mean "
+            f"{_format_metric(incy_row.get('terminal_case_short_dated_otm_call_z_premium_mean'))}."
         ),
+        (
+            f"Short-dated OTM bucket sensitivity [{config.case_study.windows.pre_event[0]},"
+            f"{config.case_study.windows.pre_event[1]}]: INCY pre-event z-volume mean "
+            f"{_format_metric(incy_row.get('pre_event_short_dated_otm_call_z_volume_mean'))}, "
+            f"z-premium mean {_format_metric(incy_row.get('pre_event_short_dated_otm_call_z_premium_mean'))}, "
+            f"and z-lead OI mean "
+            f"{_format_metric(incy_row.get('pre_event_short_dated_otm_call_z_lead_oi_mean'))}."
+        ),
+        "",
+        _frame_to_markdown(exact_contract_window_summary),
         "",
         "## Exact Complaint-Named Contracts",
         "",
@@ -570,6 +627,58 @@ def _frame_to_markdown(frame: pl.DataFrame) -> str:
         values = [_escape_markdown_cell(row.get(column, "")) for column in headers]
         lines.append("| " + " | ".join(values) + " |")
     return "\n".join(lines)
+
+
+def _display_related_firms(related_firms: pl.DataFrame) -> pl.DataFrame:
+    if related_firms.height == 0:
+        return related_firms
+    return related_firms.with_columns(
+        pl.when(
+            pl.col("linked_name")
+            .cast(pl.String, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .ne("")
+        )
+        .then(pl.col("linked_name"))
+        .otherwise(pl.col("linked_firm_id"))
+        .alias("linked_name")
+    )
+
+
+def _other_horizontal_peer_count(config: ProjectConfig, related_firms: pl.DataFrame) -> int:
+    return related_firms.filter(
+        (pl.col("link_type") == "horizontal_tnic")
+        & (pl.col("linked_firm_id") != config.case_study.primary_related_symbol)
+    ).height
+
+
+def _count_noun(count: int, singular: str, plural: str) -> str:
+    return singular if count == 1 else plural
+
+
+def _select_exact_window_row(
+    frame: pl.DataFrame,
+    *,
+    summary_scope: str,
+    window_label: str,
+) -> dict[str, object]:
+    filtered = frame.filter(
+        (pl.col("summary_scope") == summary_scope) & (pl.col("window_label") == window_label)
+    )
+    return filtered.row(0, named=True) if filtered.height else {}
+
+
+def _format_metric(value: object) -> str:
+    return "n/a" if value is None else f"{float(value):.4f}"
+
+
+def _format_pct(value: object) -> str:
+    return "n/a" if value is None else f"{float(value) * 100:.1f}%"
+
+
+def _format_count(value: object) -> str:
+    return "0" if value is None else f"{int(value):,}"
 
 
 def _escape_markdown_cell(value: object) -> str:

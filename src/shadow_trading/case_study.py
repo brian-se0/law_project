@@ -21,8 +21,9 @@ from shadow_trading.buckets import (
     extract_symbol_daily_option_volume,
     render_bucket_qc_markdown,
     summarize_bucket_build,
+    validate_case_study_calcs,
 )
-from shadow_trading.config import ProjectConfig
+from shadow_trading.config import CaseStudyWindowConfig, ExactContractConfig, ProjectConfig
 from shadow_trading.io import ensure_directories, write_json, write_text
 
 HORIZONTAL_LINK_TYPE = "horizontal_tnic"
@@ -318,6 +319,7 @@ def build_case_buckets(
         exact_contracts=config.case_study.exact_contracts,
         primary_related_symbol=config.case_study.primary_related_symbol,
     )
+    validate_case_study_calcs(enriched_rows)
     exact_contracts = compute_exact_contract_abnormal_metrics(
         build_exact_contract_features(enriched_rows),
         estimation_window=config.case_study.windows.estimation,
@@ -543,7 +545,7 @@ def build_related_firms(
                 )
 
     rank_denominators = (
-        retained.filter(pl.col("link_type").is_in([HORIZONTAL_LINK_TYPE, VERTICAL_LINK_TYPE]))
+        relevant.filter(pl.col("link_type").is_in([HORIZONTAL_LINK_TYPE, VERTICAL_LINK_TYPE]))
         .group_by("link_type")
         .agg(pl.len().alias("__link_count"))
     )
@@ -705,6 +707,7 @@ def build_matched_control_bucket_features(
         exact_contracts=config.case_study.exact_contracts,
         primary_related_symbol=config.case_study.primary_related_symbol,
     )
+    validate_case_study_calcs(enriched_rows)
     return compute_bucket_abnormal_metrics(
         build_bucket_features(enriched_rows),
         estimation_window=config.case_study.windows.estimation,
@@ -807,6 +810,48 @@ def build_case_abnormal_summary(
         ],
         descending=[False, True, False, False, False],
     )
+
+
+def summarize_exact_contract_windows(
+    *,
+    exact_contracts: pl.DataFrame,
+    expected_exact_contracts: tuple[ExactContractConfig, ...],
+    windows: CaseStudyWindowConfig,
+) -> pl.DataFrame:
+    expected_series_ids = [contract.series_id for contract in expected_exact_contracts]
+    rows: list[dict[str, Any]] = []
+    for window_label, flag_column, bounds in _exact_contract_window_specs(windows):
+        window_rows = (
+            exact_contracts.filter(pl.col(flag_column))
+            if exact_contracts.height
+            else exact_contracts
+        )
+        rows.append(
+            _summarize_exact_contract_window_subset(
+                frame=window_rows,
+                summary_scope="pooled",
+                series_id="ALL_EXACT_CONTRACTS",
+                window_label=window_label,
+                bounds=bounds,
+            )
+        )
+        for series_id in expected_series_ids:
+            rows.append(
+                _summarize_exact_contract_window_subset(
+                    frame=(
+                        window_rows.filter(pl.col("series_id") == series_id)
+                        if window_rows.height
+                        else window_rows
+                    ),
+                    summary_scope="series",
+                    series_id=series_id,
+                    window_label=window_label,
+                    bounds=bounds,
+                )
+            )
+    if not rows:
+        return _empty_exact_contract_window_summary_frame()
+    return pl.DataFrame(rows, schema=_exact_contract_window_summary_schema())
 
 
 def _load_estimation_option_volume_features(
@@ -1031,8 +1076,118 @@ def _window_mean_expr(flag_column: str, value_column: str) -> pl.Expr:
     return pl.col(value_column).filter(pl.col(flag_column)).drop_nulls().mean()
 
 
+def _exact_contract_window_specs(
+    windows: CaseStudyWindowConfig,
+) -> tuple[tuple[str, str, tuple[int, int]], ...]:
+    return (
+        ("pre_event", "case_pre_event_window_flag", windows.pre_event),
+        ("terminal_case", "case_terminal_window_flag", windows.terminal_case),
+        ("announcement", "announcement_window_flag", windows.announcement),
+    )
+
+
+def _summarize_exact_contract_window_subset(
+    *,
+    frame: pl.DataFrame,
+    summary_scope: str,
+    series_id: str,
+    window_label: str,
+    bounds: tuple[int, int],
+) -> dict[str, Any]:
+    if frame.height == 0:
+        return {
+            "summary_scope": summary_scope,
+            "series_id": series_id,
+            "window_label": window_label,
+            "window_start": bounds[0],
+            "window_end": bounds[1],
+            "observed_rows": 0,
+            "observed_days": 0,
+            "observed_series_count": 0,
+            "mean_z_contract_volume": None,
+            "mean_z_contract_premium": None,
+            "mean_z_contract_lead_oi": None,
+            "mean_z_contract_iv": None,
+            "pooled_contract_volume": 0,
+            "pooled_contract_premium": 0.0,
+            "pooled_contract_lead_oi_change": 0,
+            "pooled_share_of_underlying_call_volume": None,
+            "pooled_share_of_same_expiry_call_volume": None,
+        }
+
+    summary_row = frame.select(
+        [
+            pl.len().alias("observed_rows"),
+            pl.col("quote_date").n_unique().alias("observed_days"),
+            pl.col("series_id").n_unique().alias("observed_series_count"),
+            pl.col("z_contract_volume").drop_nulls().mean().alias("mean_z_contract_volume"),
+            pl.col("z_contract_premium").drop_nulls().mean().alias("mean_z_contract_premium"),
+            pl.col("z_contract_lead_oi").drop_nulls().mean().alias("mean_z_contract_lead_oi"),
+            pl.col("z_contract_iv").drop_nulls().mean().alias("mean_z_contract_iv"),
+            pl.col("contract_volume").sum().alias("pooled_contract_volume"),
+            pl.col("contract_premium").drop_nulls().sum().alias("pooled_contract_premium"),
+            pl.col("contract_lead_oi_change")
+            .drop_nulls()
+            .sum()
+            .alias("pooled_contract_lead_oi_change"),
+        ]
+    ).row(0, named=True)
+    summary_row.update(
+        {
+            "summary_scope": summary_scope,
+            "series_id": series_id,
+            "window_label": window_label,
+            "window_start": bounds[0],
+            "window_end": bounds[1],
+            "pooled_share_of_underlying_call_volume": _pooled_contract_share(
+                frame=frame,
+                group_keys=["underlying_symbol", "quote_date"],
+                denominator_column="underlying_call_volume",
+            ),
+            "pooled_share_of_same_expiry_call_volume": _pooled_contract_share(
+                frame=frame,
+                group_keys=["underlying_symbol", "quote_date", "expiration"],
+                denominator_column="same_expiry_call_volume",
+            ),
+        }
+    )
+    return summary_row
+
+
+def _pooled_contract_share(
+    *,
+    frame: pl.DataFrame,
+    group_keys: list[str],
+    denominator_column: str,
+) -> float | None:
+    if frame.height == 0 or denominator_column not in frame.columns:
+        return None
+    grouped = frame.group_by(group_keys).agg(
+        [
+            pl.col("contract_volume").sum().alias("__contract_volume_sum"),
+            pl.col(denominator_column).drop_nulls().first().alias("__denominator"),
+        ]
+    )
+    valid = grouped.filter(pl.col("__denominator").is_not_null() & (pl.col("__denominator") > 0))
+    if valid.height == 0:
+        return None
+    numerator = valid.select(pl.col("__contract_volume_sum").sum().alias("value")).row(
+        0, named=True
+    )["value"]
+    denominator = valid.select(pl.col("__denominator").sum().alias("value")).row(0, named=True)[
+        "value"
+    ]
+    if denominator in {None, 0}:
+        return None
+    return float(numerator or 0.0) / float(denominator)
+
+
 def _coerce_date(value: Any) -> date:
     return value if isinstance(value, date) else date.fromisoformat(str(value))
+
+
+def _empty_exact_contract_window_summary_frame() -> pl.DataFrame:
+    return pl.DataFrame(schema=_exact_contract_window_summary_schema())
 
 
 def _empty_related_firm_frame() -> pl.DataFrame:
@@ -1097,6 +1252,28 @@ def _empty_return_summary_frame() -> pl.DataFrame:
             "return_0_1": pl.Float64,
         }
     )
+
+
+def _exact_contract_window_summary_schema() -> dict[str, pl.DataType]:
+    return {
+        "summary_scope": pl.String,
+        "series_id": pl.String,
+        "window_label": pl.String,
+        "window_start": pl.Int64,
+        "window_end": pl.Int64,
+        "observed_rows": pl.UInt32,
+        "observed_days": pl.UInt32,
+        "observed_series_count": pl.UInt32,
+        "mean_z_contract_volume": pl.Float64,
+        "mean_z_contract_premium": pl.Float64,
+        "mean_z_contract_lead_oi": pl.Float64,
+        "mean_z_contract_iv": pl.Float64,
+        "pooled_contract_volume": pl.Int64,
+        "pooled_contract_premium": pl.Float64,
+        "pooled_contract_lead_oi_change": pl.Int64,
+        "pooled_share_of_underlying_call_volume": pl.Float64,
+        "pooled_share_of_same_expiry_call_volume": pl.Float64,
+    }
 
 
 def _abnormal_summary_schema() -> dict[str, pl.DataType]:

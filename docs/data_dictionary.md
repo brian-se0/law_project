@@ -331,6 +331,8 @@ Primary fields:
 
 Lagged ex ante related-firm table retained for the case study.
 
+`linked_percentile_within_source` is computed against the full relevant source-firm linkage set for that `link_type`, not just the retained display subset.
+
 Primary fields:
 
 - `case_id`
@@ -348,6 +350,8 @@ Primary fields:
 
 Daily exact-series table for the complaint-named `INCY` contracts.
 
+These rows are Calcs-backed by construction. The case-study path now fails loudly if required exact-series IV fields are missing.
+
 Primary fields:
 
 - `quote_date`
@@ -362,6 +366,8 @@ Primary fields:
 - `contract_lead_oi_change`
 - `contract_rel_spread_1545`
 - `contract_iv_1545`
+- `underlying_call_volume`
+- `same_expiry_call_volume`
 - `contract_volume_share_of_underlying_call_volume`
 - `contract_volume_share_of_same_expiry_call_volume`
 - `z_contract_volume`
@@ -372,6 +378,8 @@ Primary fields:
 ## `data/processed/case_studies/mdvn_bucket_features.parquet`
 
 Firm-day-bucket table for case-study symbols around the frozen event.
+
+For the canonical MDVN path, bucket construction uses delta-based moneyness from Calcs fields and does not fall back to strike-vs-spot bands.
 
 Primary fields:
 
@@ -448,6 +456,30 @@ Primary fields:
 - `return_0`
 - `return_0_1`
 - `source_return_0_1`
+
+## `outputs/tables/mdvn_exact_contract_window_summary.md`
+
+Scripted pooled and per-series window summary for the configured exact `INCY` contracts.
+
+Primary fields:
+
+- `summary_scope`
+- `series_id`
+- `window_label`
+- `window_start`
+- `window_end`
+- `observed_rows`
+- `observed_days`
+- `observed_series_count`
+- `mean_z_contract_volume`
+- `mean_z_contract_premium`
+- `mean_z_contract_lead_oi`
+- `mean_z_contract_iv`
+- `pooled_contract_volume`
+- `pooled_contract_premium`
+- `pooled_contract_lead_oi_change`
+- `pooled_share_of_underlying_call_volume`
+- `pooled_share_of_same_expiry_call_volume`
 
 ## `data/processed/case_studies/mdvn_control_matches.parquet`
 
